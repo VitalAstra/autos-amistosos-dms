@@ -2,6 +2,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
 	QComboBox,
 	QFormLayout,
+	QFrame,
 	QHBoxLayout,
 	QLabel,
 	QLineEdit,
@@ -24,7 +25,21 @@ class CustomerView(QWidget):
 		self.setWindowTitle("Clientes")
 
 		main_layout = QHBoxLayout(self)
+		main_layout.setContentsMargins(0, 0, 0, 0)
+		main_layout.setSpacing(12)
+
+		left_section = QFrame()
+		left_section.setObjectName("card")
+		left_layout = QVBoxLayout(left_section)
+		left_layout.setContentsMargins(16, 16, 16, 16)
+		left_layout.setSpacing(12)
+		form_title = QLabel("Datos del cliente")
+		form_title.setObjectName("viewTitle")
+		left_layout.addWidget(form_title)
+
 		form_layout = QFormLayout()
+		form_layout.setVerticalSpacing(10)
+		form_layout.setHorizontalSpacing(12)
 		self.first_name_input = QLineEdit()
 		self.last_name_input = QLineEdit()
 		self.email_input = QLineEdit()
@@ -56,10 +71,19 @@ class CustomerView(QWidget):
 		self.clear_button.clicked.connect(self.clear_form)
 		form_layout.addRow(self.save_button, self.clear_button)
 
-		left_section = QWidget()
-		left_section.setLayout(form_layout)
+		left_layout.addLayout(form_layout)
+
+		right_section = QFrame()
+		right_section.setObjectName("card")
+		right_layout = QVBoxLayout(right_section)
+		right_layout.setContentsMargins(16, 16, 16, 16)
+		right_layout.setSpacing(12)
+		list_title = QLabel("Clientes registrados")
+		list_title.setObjectName("viewTitle")
+		right_layout.addWidget(list_title)
 
 		search_layout = QHBoxLayout()
+		search_layout.setSpacing(8)
 		search_layout.addWidget(QLabel("Buscar"))
 		self.search_input = QLineEdit()
 		self.search_input.setPlaceholderText("Buscar clientes por nombre")
@@ -81,30 +105,27 @@ class CustomerView(QWidget):
 		self.customers_table.verticalHeader().setVisible(False)
 		self.customers_table.horizontalHeader().setStretchLastSection(True)
 
-		right_section = QWidget()
-		right_layout = QVBoxLayout(right_section)
 		right_layout.addLayout(search_layout)
 		right_layout.addWidget(self.customers_table)
 
 		main_layout.addWidget(left_section, 1)
 		main_layout.addWidget(right_section, 2)
 
-	def load_data(self, customers_list):
-		"""Puebla la tabla con diccionarios u objetos de cliente."""
-		self.customers_table.setRowCount(len(customers_list))
+	def load_data(self, customers):
+		"""Puebla la tabla con instancias ORM de cliente."""
+		self.customers_table.setRowCount(len(customers))
 		self.customers_table.clearContents()
 
-		for row_index, customer in enumerate(customers_list):
-			customer_id = self._get_value(customer, "customer_id")
-			first_name = self._get_value(customer, "first_name")
-			last_name = self._get_value(customer, "last_name")
+		for row_index, customer in enumerate(customers):
+			first_name = customer.first_name
+			last_name = customer.last_name
 			full_name = f"{first_name} {last_name}".strip()
 			values = (
-				customer_id,
+				customer.id,
 				full_name,
-				self._get_value(customer, "email"),
-				self._get_value(customer, "phone"),
-				self._get_value(customer, "lead_source"),
+				customer.email,
+				customer.phone,
+				customer.lead_source,
 			)
 			for column_index, value in enumerate(values):
 				text = "" if value is None else str(value)
@@ -138,12 +159,6 @@ class CustomerView(QWidget):
 		):
 			field.clear()
 		self.lead_source_input.setCurrentIndex(0)
-
-	@staticmethod
-	def _get_value(customer, field_name):
-		if isinstance(customer, dict):
-			return customer.get(field_name)
-		return getattr(customer, field_name, None)
 
 	def _emit_save_requested(self):
 		self.save_requested.emit(self.get_form_data())

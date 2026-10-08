@@ -1,47 +1,53 @@
-from models.base_model import BaseModel
+"""Modelo ORM de facturas sobre las columnas existentes de PostgreSQL."""
+
+from datetime import date
+from decimal import Decimal
+from typing import TYPE_CHECKING
+
+from sqlalchemy import Boolean, Date, ForeignKey, Integer, Numeric
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from config.database import Base
+
+if TYPE_CHECKING:
+	from models.customer import Customer
+	from models.vehicle import Vehicle
 
 
-class SalesInvoice(BaseModel):
-	"""Modelo de acceso a la tabla sales_invoice."""
+class SalesInvoice(Base):
+	__tablename__ = "sales_invoice"
 
-	def __init__(
-		self,
-		sales_invoice_number=None,
-		sales_date=None,
-		customer_id=None,
-		employee_id=None,
-		vehicle_id=None,
-		sales_current_mileage=None,
-		sales_negotiated_price=None,
-		sales_manager_approval=None,
-		sales_tax_amount=None,
-		sales_license_fee_amount=None,
-		sales_total_amount=None,
-	):
-		self.sales_invoice_number = sales_invoice_number
-		self.sales_date = sales_date
-		self.customer_id = customer_id
-		self.employee_id = employee_id
-		self.vehicle_id = vehicle_id
-		self.sales_current_mileage = sales_current_mileage
-		self.sales_negotiated_price = sales_negotiated_price
-		self.sales_manager_approval = sales_manager_approval
-		self.sales_tax_amount = sales_tax_amount
-		self.sales_license_fee_amount = sales_license_fee_amount
-		self.sales_total_amount = sales_total_amount
+	id: Mapped[int] = mapped_column(
+		"sales_invoice_number", Integer, primary_key=True, autoincrement=True
+	)
+	date: Mapped[date] = mapped_column("sales_date", Date, nullable=False, default=date.today)
+	customer_id: Mapped[int] = mapped_column(
+		"customer_id", ForeignKey("customer.customer_id"), nullable=False
+	)
+	employee_id: Mapped[int] = mapped_column(
+		"employee_id", ForeignKey("employee.employee_id"), nullable=False
+	)
+	vehicle_id: Mapped[str] = mapped_column(
+		"vehicle_id", ForeignKey("vehicle.vehicle_id"), nullable=False
+	)
+	current_mileage: Mapped[int | None] = mapped_column(
+		"sales_current_mileage", Integer
+	)
+	negotiated_price: Mapped[Decimal] = mapped_column(
+		"sales_negotiated_price", Numeric(12, 2), nullable=False
+	)
+	manager_approval: Mapped[bool | None] = mapped_column(
+		"sales_manager_approval", Boolean
+	)
+	tax_amount: Mapped[Decimal] = mapped_column(
+		"sales_tax_amount", Numeric(12, 2), nullable=False
+	)
+	license_fee_amount: Mapped[Decimal] = mapped_column(
+		"sales_license_fee_amount", Numeric(12, 2), nullable=False, default=Decimal("0")
+	)
+	total_amount: Mapped[Decimal] = mapped_column(
+		"sales_total_amount", Numeric(12, 2), nullable=False
+	)
 
-	@classmethod
-	def get_sales_summary(cls):
-		"""Retorna número, fecha, cliente, vehículo y total de cada venta."""
-		query = """
-			SELECT
-				si.sales_invoice_number AS "Número Factura",
-				si.sales_date AS "Fecha",
-				CONCAT_WS(' ', c.first_name, c.last_name) AS "Nombre Cliente",
-				v.model AS "Modelo Vehículo",
-				si.sales_total_amount AS "Monto Total"
-			FROM sales_invoice AS si
-			JOIN customer AS c ON c.customer_id = si.customer_id
-			JOIN vehicle AS v ON v.vehicle_id = si.vehicle_id
-		"""
-		return cls.execute_query(query, fetchall=True)
+	customer: Mapped["Customer"] = relationship("Customer", back_populates="sales_invoices")
+	vehicle: Mapped["Vehicle"] = relationship("Vehicle", back_populates="sales_invoices")

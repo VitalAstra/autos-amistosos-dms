@@ -1,98 +1,86 @@
+"""Operaciones de venta mediante transacciones SQLAlchemy ORM."""
+
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
-from psycopg import sql
+from sqlalchemy import select
 
-from config.database import DatabaseConnection
+from config.database import SessionLocal
+from models.customer import Customer
+from models.employee import Employee
+from models.sales_invoice import SalesInvoice
+from models.vehicle import Vehicle
 
 
 class SalesController:
-	"""Procesa ventas y sus complementos dentro de una transacción."""
+	"""Registra ventas y actualiza el inventario atómicamente."""
 
-	_ADDON_TABLES = {
-		"financing": "sales_financing",
-		"trade_in": "sales_trade_in",
-		"customization": "sales_customization",
-		"insurance": "sales_insurance",
-		"warranty": "sales_warranty",
-	}
+	_CENT = Decimal("0.01")
 
-	def process_sale(self, invoice_data, addons_data):
-		"""Guarda una factura y sus complementos de forma atómica."""
-		conn = None
+	def process_sale(
+		self,
+		customer_id: int,
+		vehicle_id: str,
+		negotiated_price: Decimal | str | int | float,
+		tax_rate: Decimal | str | int | float,
+		employee_id: int,
+	) -> tuple[bool, str]:
+		"""Registra una factura y marca como vendido el vehículo asociado.
+
+		``tax_rate`` se expresa como fracción: por ejemplo, ``Decimal("0.13")``
+		representa un impuesto del 13 por ciento. El empleado es obligatorio
+		para guardar la referencia exigida por la factura.
+		"""
 		try:
-			conn = DatabaseConnection.get_connection()
-			negotiated_price = Decimal(str(invoice_data["sales_negotiated_price"]))
-			license_fee = Decimal(str(invoice_data.get("sales_license_fee_amount", 0)))
-			if not negotiated_price.is_finite() or not license_fee.is_finite():
-				raise ValueError("Los montos de la venta deben ser números finitos.")
-
-			sales_tax_amount = (negotiated_price * Decimal("0.13")).quantize(
-				Decimal("0.01"), rounding=ROUND_HALF_UP
+			price = self._to_nonnegative_decimal(negotiated_price, "El precio")
+			rate = self._to_nonnegative_decimal(tax_rate, "La tasa de impuestos")
+			tax_amount = (price * rate).quantize(
+				self._CENT, rounding=ROUND_HALF_UP
 			)
-			sales_total_amount = negotiated_price + sales_tax_amount + license_fee
+			total_amount = price + tax_amount
 
-			with conn.cursor() as cursor:
-				cursor.execute(
-					"""
-					INSERT INTO sales_invoice (
-						sales_date, customer_id, employee_id, vehicle_id,
-						sales_current_mileage, sales_negotiated_price,
-						sales_manager_approval, sales_tax_amount,
-						sales_license_fee_amount, sales_total_amount
-					)
-					VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-					RETURNING sales_invoice_number
-					""",
-					(
-						invoice_data["sales_date"],
-						invoice_data["customer_id"],
-						invoice_data["employee_id"],
-						invoice_data["vehicle_id"],
-						invoice_data.get("sales_current_mileage"),
-						negotiated_price,
-						invoice_data.get("sales_manager_approval"),
-						sales_tax_amount,
-						license_fee,
-						sales_total_amount,
-					),
-				)
-				invoice_number = cursor.fetchone()["sales_invoice_number"]
-
-				for addon_name, table_name in self._ADDON_TABLES.items():
-					if addon_name not in addons_data or addons_data[addon_name] is None:
-						continue
-
-					addon_fields = addons_data[addon_name]
-					if not isinstance(addon_fields, dict):
-						raise TypeError(
-							f"Los datos de {addon_name} deben ser un diccionario."
-						)
-
-					addon_fields = {
-						field: value
-						for field, value in addon_fields.items()
-						if field != "sales_invoice_number"
-					}
-					columns = ["sales_invoice_number", *addon_fields.keys()]
-					values = [invoice_number, *addon_fields.values()]
-					insert_addon = sql.SQL(
-						"INSERT INTO {} ({}) VALUES ({})"
-					).format(
-						sql.Identifier(table_name),
-						sql.SQL(", ").join(sql.Identifier(column) for column in columns),
-						sql.SQL(", ").join(sql.Placeholder() for _ in values),
-					)
-					cursor.execute(insert_addon, tuple(values))
-
-			conn.commit()
-			return True, f"Venta registrada con factura {invoice_number}."
-		except Exception as error:
-			if conn is not None:
+			with SessionLocal() as session:
 				try:
-					conn.rollback()
+					vehicle = session.scalars(
+						select(Vehicle)
+						.where(Vehicle.id == vehicle_id)
+						.with_for_update()
+					).one_or_none()
+					if vehicle is None:
+						raise ValueError("No se encontró el vehículo seleccionado.")
+					if vehicle.status != "Available":
+						raise ValueError("El vehículo seleccionado ya no está disponible.")
+					if session.get(Customer, customer_id) is None:
+						raise ValueError("No se encontró el cliente seleccionado.")
+					if session.get(Employee, employee_id) is None:
+						raise ValueError("No se encontró el empleado seleccionado.")
+
+					invoice = SalesInvoice(
+						customer_id=customer_id,
+						vehicle_id=vehicle.id,
+						employee_id=employee_id,
+						negotiated_price=price,
+						tax_amount=tax_amount,
+						license_fee_amount=Decimal("0.00"),
+						total_amount=total_amount,
+					)
+					vehicle.status = "Sold"
+					session.add(invoice)
+					session.commit()
+					invoice_id = invoice.id
 				except Exception:
-					pass
+					session.rollback()
+					raise
+
+			return True, f"Venta registrada con factura {invoice_id}."
+		except Exception as error:
 			return False, str(error)
-		finally:
-			if conn is not None:
-				conn.close()
+
+	@classmethod
+	def _to_nonnegative_decimal(cls, value, label: str) -> Decimal:
+		try:
+			amount = Decimal(str(value))
+		except (InvalidOperation, TypeError, ValueError) as error:
+			raise ValueError(f"{label} debe ser un número válido.") from error
+		if not amount.is_finite() or amount < 0:
+			raise ValueError(f"{label} debe ser un monto no negativo.")
+		return amount.quantize(cls._CENT, rounding=ROUND_HALF_UP)
