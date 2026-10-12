@@ -17,20 +17,34 @@ class Vehicle(Base):
 	__tablename__ = "vehicle"
 
 	id: Mapped[str] = mapped_column("vehicle_id", String(17), primary_key=True)
-	condition: Mapped[str | None] = mapped_column("vehicle_condition", String(50))
+	condition: Mapped[str | None] = mapped_column("vehicle_condition", String(10))
 	manufacturer: Mapped[str | None] = mapped_column(
-		"vehicle_manufacturer", String(100)
+		"vehicle_manufacturer", String(50), nullable=False
 	)
-	model: Mapped[str | None] = mapped_column("vehicle_model", String(100))
+	model: Mapped[str | None] = mapped_column(
+		"vehicle_model", String(50), nullable=False
+	)
 	manufacture_date: Mapped[date | None] = mapped_column(
 		"vehicle_manufacture_date", Date
 	)
-	list_price: Mapped[Decimal | None] = mapped_column(
-		"vehicle_list_price", Numeric(12, 2)
+	list_price: Mapped[Decimal] = mapped_column(
+		"vehicle_list_price", Numeric(12, 2), nullable=False
 	)
-	status: Mapped[str] = mapped_column(
-		"vehicle_status", String(30), nullable=False, default="Available"
+	manufacture_location: Mapped[str | None] = mapped_column(
+		"vehicle_manufacture_location", String(100)
 	)
+	cylinder_count: Mapped[int | None] = mapped_column(
+		"vehicle_cylinder_count"
+	)
+	door_count: Mapped[int | None] = mapped_column("vehicle_door_count")
+	weight: Mapped[Decimal | None] = mapped_column(
+		"vehicle_weight", Numeric(8, 2)
+	)
+	capacity: Mapped[int | None] = mapped_column("vehicle_capacity")
+	color: Mapped[str | None] = mapped_column("vehicle_color", String(30))
+	factory_options: Mapped[str | None] = mapped_column("vehicle_factory_options")
+	delivery_date: Mapped[date | None] = mapped_column("vehicle_delivery_date", Date)
+	delivery_mileage: Mapped[int | None] = mapped_column("vehicle_delivery_mileage")
 
 	sales_invoices: Mapped[list["SalesInvoice"]] = relationship(
 		back_populates="vehicle"

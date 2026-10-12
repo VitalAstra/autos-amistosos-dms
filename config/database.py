@@ -50,6 +50,7 @@ def init_db() -> None:
 		"models.customer",
 		"models.employee",
 		"models.sales_invoice",
+		"models.sales_addons",
 		"models.vehicle",
 	):
 		import_module(module_name)

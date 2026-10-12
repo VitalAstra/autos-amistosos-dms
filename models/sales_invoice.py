@@ -10,7 +10,15 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from config.database import Base
 
 if TYPE_CHECKING:
+	from models.employee import Employee
 	from models.customer import Customer
+	from models.sales_addons import (
+		Customization,
+		Financing,
+		Insurance,
+		TradeIn,
+		Warranty,
+	)
 	from models.vehicle import Vehicle
 
 
@@ -30,8 +38,8 @@ class SalesInvoice(Base):
 	vehicle_id: Mapped[str] = mapped_column(
 		"vehicle_id", ForeignKey("vehicle.vehicle_id"), nullable=False
 	)
-	current_mileage: Mapped[int | None] = mapped_column(
-		"sales_current_mileage", Integer
+	current_mileage: Mapped[int] = mapped_column(
+		"sales_current_mileage", Integer, nullable=False
 	)
 	negotiated_price: Mapped[Decimal] = mapped_column(
 		"sales_negotiated_price", Numeric(12, 2), nullable=False
@@ -51,3 +59,19 @@ class SalesInvoice(Base):
 
 	customer: Mapped["Customer"] = relationship("Customer", back_populates="sales_invoices")
 	vehicle: Mapped["Vehicle"] = relationship("Vehicle", back_populates="sales_invoices")
+	employee: Mapped["Employee"] = relationship("Employee")
+	trade_in: Mapped["TradeIn | None"] = relationship(
+		"TradeIn", back_populates="sales_invoice", uselist=False
+	)
+	financing: Mapped["Financing | None"] = relationship(
+		"Financing", back_populates="sales_invoice", uselist=False
+	)
+	insurance: Mapped["Insurance | None"] = relationship(
+		"Insurance", back_populates="sales_invoice", uselist=False
+	)
+	warranty: Mapped["Warranty | None"] = relationship(
+		"Warranty", back_populates="sales_invoice", uselist=False
+	)
+	customization: Mapped["Customization | None"] = relationship(
+		"Customization", back_populates="sales_invoice", uselist=False
+	)

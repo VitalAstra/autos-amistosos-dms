@@ -18,7 +18,15 @@ class VehicleController:
 			"model",
 			"manufacture_date",
 			"list_price",
-			"status",
+			"manufacture_location",
+			"cylinder_count",
+			"door_count",
+			"weight",
+			"capacity",
+			"color",
+			"factory_options",
+			"delivery_date",
+			"delivery_mileage",
 		}
 	)
 
@@ -26,7 +34,7 @@ class VehicleController:
 		"""Retorna el inventario, filtrando disponibles de forma predeterminada."""
 		statement = select(Vehicle)
 		if available_only:
-			statement = statement.where(Vehicle.status == "Available")
+			statement = statement.where(~Vehicle.sales_invoices.any())
 		with SessionLocal() as session:
 			return session.scalars(statement).all()
 
@@ -38,6 +46,12 @@ class VehicleController:
 		vehicle_id = vehicle_data.get("id", vehicle_data.get("vehicle_id"))
 		if not isinstance(vehicle_id, str) or len(vehicle_id.strip()) != 17:
 			return False, "El VIN debe tener exactamente 17 caracteres."
+		for field in ("manufacturer", "model"):
+			value = vehicle_data.get(field)
+			if not isinstance(value, str) or not value.strip():
+				return False, f"{field.capitalize()} es obligatorio."
+			if len(value.strip()) > 50:
+				return False, f"{field.capitalize()} no puede superar 50 caracteres."
 
 		raw_price = vehicle_data.get("list_price")
 		try:

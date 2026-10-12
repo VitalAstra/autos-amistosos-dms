@@ -1,4 +1,5 @@
 import sys
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 from config.database import init_db
 from utils.style_loader import load_stylesheet
@@ -7,6 +8,9 @@ from views.main_window import MainWindow
 
 def main():
     init_db()
+    QApplication.setAttribute(
+        Qt.ApplicationAttribute.AA_DontUseNativeDialogs, True
+    )
     app = QApplication(sys.argv)
     load_stylesheet(app)
 

@@ -7,6 +7,7 @@ ENV/
 
 # Archivos de entorno y credenciales sensibles
 .env
+config/.env
 
 # Archivos compilados y caché de Python
 __pycache__/

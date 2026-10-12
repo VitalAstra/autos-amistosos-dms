@@ -51,11 +51,10 @@ class CustomerController:
 			return False, "El nombre es obligatorio."
 		if not isinstance(last_name, str) or not last_name.strip():
 			return False, "El apellido es obligatorio."
-		if not isinstance(email, str) or not email.strip():
-			return False, "El correo electrónico es obligatorio."
-
-		email = email.strip()
-		if not self._EMAIL_PATTERN.fullmatch(email):
+		if email is not None and not isinstance(email, str):
+			return False, "El correo electrónico debe ser texto."
+		email = email.strip() if email else None
+		if email and not self._EMAIL_PATTERN.fullmatch(email):
 			return False, "El formato del correo electrónico no es válido."
 
 		customer_data.update(
@@ -82,7 +81,7 @@ class CustomerController:
 			return False, "Los datos del cliente deben ser un diccionario."
 
 		customer_data = self._normalize_data(data)
-		if "email" in customer_data:
+		if "email" in customer_data and customer_data["email"]:
 			email = customer_data["email"]
 			if not isinstance(email, str) or not self._EMAIL_PATTERN.fullmatch(
 				email.strip()

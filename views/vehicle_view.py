@@ -1,6 +1,9 @@
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
 	QFrame,
+	QHBoxLayout,
 	QLabel,
+	QPushButton,
 	QTableWidget,
 	QTableWidgetItem,
 	QVBoxLayout,
@@ -10,6 +13,8 @@ from PySide6.QtWidgets import (
 
 class VehicleView(QWidget):
 	"""Vista tabular del inventario de vehículos."""
+
+	new_vehicle_requested = Signal()
 
 	_COLUMNS = (
 		("id", "VIN"),
@@ -28,7 +33,14 @@ class VehicleView(QWidget):
 		card_layout.setSpacing(12)
 		title = QLabel("Inventario de vehículos")
 		title.setObjectName("viewTitle")
-		card_layout.addWidget(title)
+		header_layout = QHBoxLayout()
+		header_layout.addWidget(title)
+		header_layout.addStretch(1)
+		self.new_vehicle_button = QPushButton("Alta de vehículo")
+		self.new_vehicle_button.setObjectName("primaryButton")
+		self.new_vehicle_button.clicked.connect(self.new_vehicle_requested)
+		header_layout.addWidget(self.new_vehicle_button)
+		card_layout.addLayout(header_layout)
 
 		self.vehicles_table = QTableWidget(0, len(self._COLUMNS))
 		self.vehicles_table.setHorizontalHeaderLabels(

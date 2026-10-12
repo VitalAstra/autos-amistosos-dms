@@ -18,24 +18,21 @@ class Customer(Base):
 		"customer_id", Integer, primary_key=True, autoincrement=True
 	)
 	first_name: Mapped[str] = mapped_column(
-		"customer_first_name", String(100), nullable=False
+		"customer_first_name", String(50), nullable=False
 	)
 	last_name: Mapped[str] = mapped_column(
-		"customer_last_name", String(100), nullable=False
+		"customer_last_name", String(50), nullable=False
 	)
-	email: Mapped[str] = mapped_column(
-		"customer_email", String(255), nullable=False
-	)
+	email: Mapped[str | None] = mapped_column("customer_email", String(100))
 	phone: Mapped[str | None] = mapped_column("customer_phone", String(20))
-	address: Mapped[str | None] = mapped_column("customer_address", String(255))
-	status_type: Mapped[str] = mapped_column(
+	address: Mapped[str | None] = mapped_column("customer_address", String(150))
+	status_type: Mapped[str | None] = mapped_column(
 		"customer_status_type",
-		String(50),
-		nullable=False,
+		String(20),
 		default="Potential",
 	)
 	lead_source: Mapped[str | None] = mapped_column(
-		"customer_lead_source", String(100)
+		"customer_lead_source", String(50)
 	)
 
 	sales_invoices: Mapped[list["SalesInvoice"]] = relationship(

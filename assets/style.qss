@@ -7,8 +7,11 @@ QWidget {
 }
 
 QMainWindow,
-QWidget#centralWidget {
+QWidget#centralWidget,
+QDialog,
+QMessageBox {
     background-color: #F8F9FA;
+    color: #212529;
 }
 
 /* Tarjetas y superficies. */
@@ -18,11 +21,23 @@ QFrame#card {
     border-radius: 8px;
 }
 
+QFrame#subCard {
+    background-color: #F8F9FA;
+    border: 1px solid #E9ECEF;
+    border-radius: 6px;
+}
+
 QLabel#viewTitle,
 QLabel#sidebarTitle {
     background: transparent;
     color: #212529;
     font-size: 14pt;
+    font-weight: 600;
+}
+
+QLabel#sectionTitle {
+    background: transparent;
+    color: #343A40;
     font-weight: 600;
 }
 
@@ -167,6 +182,84 @@ QDateTimeEdit:focus {
 QComboBox::drop-down {
     border: 0;
     width: 24px;
+}
+
+/* Asegurar que el popup de los ComboBox, QCompleter y las vistas listadas usen el tema claro */
+QAbstractItemView,
+QListView,
+QMenu {
+    background-color: #FFFFFF;
+    color: #212529;
+    border: 1px solid #E9ECEF;
+}
+
+QAbstractItemView::item,
+QListView::item,
+QMenu::item {
+    padding: 6px 10px;
+}
+
+QAbstractItemView::item:selected,
+QListView::item:selected,
+QMenu::item:selected {
+    background-color: #DEE2E6;
+    color: #212529;
+}
+
+/* Dialogs y MessageBoxes */
+QDialog,
+QMessageBox {
+    background-color: #FFFFFF;
+    color: #212529;
+}
+
+QDialog QWidget,
+QMessageBox QWidget {
+    color: #212529;
+}
+
+QMessageBox QLabel {
+    background: transparent;
+    color: #212529;
+}
+
+QMessageBox QPushButton {
+    background-color: #E9ECEF;
+    color: #212529;
+    border-radius: 6px;
+    padding: 6px 12px;
+}
+
+QMessageBox QPushButton:hover {
+    background-color: #DEE2E6;
+}
+
+QToolTip {
+    background-color: #FFFFFF;
+    color: #212529;
+    border: 1px solid #CED4DA;
+    padding: 4px;
+}
+
+QCalendarWidget,
+QCalendarWidget QWidget {
+    background-color: #FFFFFF;
+    color: #212529;
+}
+
+QCalendarWidget QToolButton {
+    background-color: #E9ECEF;
+    color: #212529;
+    border: 0;
+    border-radius: 4px;
+    padding: 5px;
+}
+
+QCalendarWidget QAbstractItemView {
+    background-color: #FFFFFF;
+    color: #212529;
+    selection-background-color: #DEE2E6;
+    selection-color: #212529;
 }
 
 /* Tablas: encabezados sobrios y filas alternadas. */
