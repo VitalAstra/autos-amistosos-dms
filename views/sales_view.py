@@ -18,15 +18,13 @@ from PySide6.QtWidgets import (
 	QVBoxLayout,
 	QWidget,
 )
+from utils.sales_calculator import calculate_sale_totals
 
 
 class SalesView(QWidget):
 	"""Asistente de tres pasos para preparar una factura de venta."""
 
 	sale_requested = Signal(dict)
-
-	_TAX_RATE = Decimal("0.13")
-	_CENT = Decimal("0.01")
 
 	def __init__(self, parent=None):
 		super().__init__(parent)
@@ -63,8 +61,8 @@ class SalesView(QWidget):
 		self._set_step(0)
 		self._refresh_totals()
 
-	def load_selection_data(self, customers, vehicles):
-		"""Carga las opciones de cliente y vehículo en los selectores."""
+	def load_selection_data(self, customers, vehicles, employees=()):
+		"""Carga clientes, vehículos disponibles y vendedores."""
 		self._vehicles_by_id = {}
 		self.customer_combo.clear()
 		self.customer_combo.addItem("Seleccionar cliente", None)
@@ -98,6 +96,20 @@ class SalesView(QWidget):
 			label = f"{description} ({vehicle_id})" if description else str(vehicle_id)
 			self.vehicle_combo.addItem(label, vehicle_id)
 
+		self.employee_combo.clear()
+		self.employee_combo.addItem("Seleccionar vendedor", None)
+		for employee in employees:
+			employee_id = self._get_value(employee, "employee_id")
+			full_name = " ".join(
+				part
+				for part in (
+					self._get_value(employee, "first_name") or "",
+					self._get_value(employee, "last_name") or "",
+				)
+				if part
+			)
+			self.employee_combo.addItem(full_name or str(employee_id), employee_id)
+
 		self._update_price_from_vehicle()
 
 	def get_sale_payload(self):
@@ -106,28 +118,22 @@ class SalesView(QWidget):
 			raise ValueError("Selecciona un cliente.")
 		if self.vehicle_combo.currentData() is None:
 			raise ValueError("Selecciona un vehículo.")
+		if self.employee_combo.currentData() is None:
+			raise ValueError("Selecciona un vendedor.")
 
 		negotiated_price = self._read_amount(
 			self.negotiated_price_input.text(), "El precio negociado"
 		)
 		license_fee = self.plate_fee_input.value_decimal()
 		addons = self._get_addons_payload()
-		subtotal = (
-			negotiated_price
-			+ (addons["insurance"] or {}).get("premium", Decimal("0"))
-			+ (addons["warranty"] or {}).get("price", Decimal("0"))
-			- (addons["trade_in"] or {}).get("value", Decimal("0"))
+		_, tax_amount, total_amount = calculate_sale_totals(
+			negotiated_price, license_fee, addons
 		)
-		if subtotal < 0:
-			raise ValueError("El subtotal no puede ser negativo.")
-
-		tax_amount = (subtotal * self._TAX_RATE).quantize(
-			self._CENT, rounding=ROUND_HALF_UP
-		)
-		total_amount = subtotal + tax_amount + license_fee
 		return {
 			"customer_id": self.customer_combo.currentData(),
 			"vehicle_id": self.vehicle_combo.currentData(),
+			"employee_id": self.employee_combo.currentData(),
+			"sales_current_mileage": self.current_mileage_input.value(),
 			"sales_negotiated_price": negotiated_price,
 			"sales_tax_amount": tax_amount,
 			"sales_license_fee_amount": license_fee,
@@ -146,6 +152,9 @@ class SalesView(QWidget):
 		self.customer_combo.addItem("Seleccionar cliente", None)
 		self.vehicle_combo = QComboBox()
 		self.vehicle_combo.addItem("Seleccionar vehículo", None)
+		self.employee_combo = QComboBox()
+		self.employee_combo.addItem("Seleccionar vendedor", None)
+		self.current_mileage_input = self._create_integer_input(0, 2147483647)
 		self.negotiated_price_input = QLineEdit()
 		self.negotiated_price_input.setPlaceholderText("0.00")
 		self.negotiated_price_input.setValidator(
@@ -159,6 +168,8 @@ class SalesView(QWidget):
 
 		form.addRow("Cliente", self.customer_combo)
 		form.addRow("Vehículo", self.vehicle_combo)
+		form.addRow("Vendedor", self.employee_combo)
+		form.addRow("Kilometraje actual", self.current_mileage_input)
 		form.addRow("Precio negociado", self.negotiated_price_input)
 		layout.addLayout(form)
 		layout.addStretch(1)
@@ -172,38 +183,45 @@ class SalesView(QWidget):
 		self.insurance_checkbox = QCheckBox("Seguro Incluido")
 		self.warranty_checkbox = QCheckBox("Garantía Extendida")
 
-		self.trade_in_description_input = QLineEdit()
+		self.trade_in_vehicle_id_input = QLineEdit()
+		self.trade_in_vehicle_id_input.setMaxLength(17)
 		self.trade_in_value_input = self._create_money_input()
 		self.trade_in_fields = self._create_addon_fields(
-			("Vehículo recibido", self.trade_in_description_input),
+			("VIN del vehículo recibido", self.trade_in_vehicle_id_input),
 			("Valor del Trade-In", self.trade_in_value_input),
 		)
-		self.financing_lender_input = QLineEdit()
-		self.financing_term_input = self._create_integer_input(1, 600)
-		self.financing_down_payment_input = self._create_money_input()
+		self.financing_source_input = QLineEdit()
+		self.financing_bank_input = QLineEdit()
 		self.financing_fields = self._create_addon_fields(
-			("Entidad financiera", self.financing_lender_input),
-			("Plazo (meses)", self.financing_term_input),
-			("Prima inicial", self.financing_down_payment_input),
+			("Fuente de financiamiento", self.financing_source_input),
+			("Banco", self.financing_bank_input),
 		)
-		self.insurance_provider_input = QLineEdit()
-		self.insurance_premium_input = self._create_money_input()
+		self.customization_checkbox = QCheckBox("Incluye personalización")
+		self.customization_type_input = QLineEdit()
+		self.customization_cost_input = self._create_money_input()
+		self.customization_fields = self._create_addon_fields(
+			("Tipo de personalización", self.customization_type_input),
+			("Costo", self.customization_cost_input),
+		)
+		self.insurance_company_input = QLineEdit()
+		self.insurance_policy_input = QLineEdit()
+		self.insurance_proof_checkbox = QCheckBox("Comprobante entregado")
 		self.insurance_fields = self._create_addon_fields(
-			("Aseguradora", self.insurance_provider_input),
-			("Prima del seguro", self.insurance_premium_input),
+			("Aseguradora", self.insurance_company_input),
+			("Número de póliza", self.insurance_policy_input),
+			("Comprobante", self.insurance_proof_checkbox),
 		)
-		self.warranty_coverage_input = QLineEdit()
-		self.warranty_duration_input = self._create_integer_input(1, 600)
-		self.warranty_price_input = self._create_money_input()
+		self.warranty_type_input = QLineEdit()
+		self.warranty_cost_input = self._create_money_input()
 		self.warranty_fields = self._create_addon_fields(
-			("Cobertura", self.warranty_coverage_input),
-			("Duración (meses)", self.warranty_duration_input),
-			("Precio de garantía", self.warranty_price_input),
+			("Tipo de garantía", self.warranty_type_input),
+			("Costo extendido", self.warranty_cost_input),
 		)
 
 		for checkbox, fields in (
 			(self.trade_in_checkbox, self.trade_in_fields),
 			(self.financing_checkbox, self.financing_fields),
+			(self.customization_checkbox, self.customization_fields),
 			(self.insurance_checkbox, self.insurance_fields),
 			(self.warranty_checkbox, self.warranty_fields),
 		):
@@ -215,8 +233,8 @@ class SalesView(QWidget):
 
 		for field in (
 			self.trade_in_value_input,
-			self.insurance_premium_input,
-			self.warranty_price_input,
+			self.customization_cost_input,
+			self.warranty_cost_input,
 		):
 			field.valueChanged.connect(self._refresh_totals)
 
@@ -297,31 +315,37 @@ class SalesView(QWidget):
 			"trade_in": self._create_addon_payload(
 				self.trade_in_checkbox.isChecked(),
 				{
-					"vehicle_description": self.trade_in_description_input.text().strip(),
-					"value": self.trade_in_value_input.value_decimal(),
+					"old_vehicle_id": self.trade_in_vehicle_id_input.text().strip().upper(),
+					"allowance": self.trade_in_value_input.value_decimal(),
 				},
 			),
 			"financing": self._create_addon_payload(
 				self.financing_checkbox.isChecked(),
 				{
-					"lender": self.financing_lender_input.text().strip(),
-					"term_months": self.financing_term_input.value(),
-					"down_payment": self.financing_down_payment_input.value_decimal(),
+					"source": self.financing_source_input.text().strip(),
+					"bank_name": self.financing_bank_input.text().strip() or None,
+				},
+			),
+			"customization": self._create_addon_payload(
+				self.customization_checkbox.isChecked(),
+				{
+					"type": self.customization_type_input.text().strip(),
+					"cost": self.customization_cost_input.value_decimal(),
 				},
 			),
 			"insurance": self._create_addon_payload(
 				self.insurance_checkbox.isChecked(),
 				{
-					"provider": self.insurance_provider_input.text().strip(),
-					"premium": self.insurance_premium_input.value_decimal(),
+					"company": self.insurance_company_input.text().strip(),
+					"policy_number": self.insurance_policy_input.text().strip(),
+					"proof_submitted": self.insurance_proof_checkbox.isChecked(),
 				},
 			),
 			"warranty": self._create_addon_payload(
 				self.warranty_checkbox.isChecked(),
 				{
-					"coverage": self.warranty_coverage_input.text().strip(),
-					"duration_months": self.warranty_duration_input.value(),
-					"price": self.warranty_price_input.value_decimal(),
+					"type": self.warranty_type_input.text().strip(),
+					"extended_cost": self.warranty_cost_input.value_decimal(),
 				},
 			),
 		}
@@ -370,18 +394,10 @@ class SalesView(QWidget):
 				self.negotiated_price_input.text(), "El precio negociado"
 			)
 			addons = self._get_addons_payload()
-			subtotal = (
-				negotiated_price
-				+ (addons["insurance"] or {}).get("premium", Decimal("0"))
-				+ (addons["warranty"] or {}).get("price", Decimal("0"))
-				- (addons["trade_in"] or {}).get("value", Decimal("0"))
-			)
-			if subtotal < 0:
-				raise ValueError("El subtotal no puede ser negativo.")
-			tax_amount = (subtotal * self._TAX_RATE).quantize(
-				self._CENT, rounding=ROUND_HALF_UP
-			)
 			license_fee = self.plate_fee_input.value_decimal()
+			subtotal, tax_amount, total_amount = calculate_sale_totals(
+				negotiated_price, license_fee, addons
+			)
 		except (InvalidOperation, ValueError):
 			for label in (
 				self.subtotal_label,

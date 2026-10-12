@@ -38,6 +38,17 @@ class CustomerController:
 		with SessionLocal() as session:
 			return session.scalars(select(Customer)).all()
 
+	def list_lead_sources(self) -> list[str]:
+		with SessionLocal() as session:
+			return list(
+				session.scalars(
+					select(Customer.lead_source)
+					.where(Customer.lead_source.is_not(None))
+					.distinct()
+					.order_by(Customer.lead_source)
+				)
+			)
+
 	def register_customer(self, data: dict) -> tuple[bool, str]:
 		"""Valida y persiste un nuevo cliente."""
 		if not isinstance(data, dict):

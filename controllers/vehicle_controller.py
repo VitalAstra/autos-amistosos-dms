@@ -1,10 +1,12 @@
 """Operaciones de inventario mediante SQLAlchemy ORM."""
 
+from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import select
 
 from config.database import SessionLocal
+from models.sales_invoice import SalesInvoice
 from models.vehicle import Vehicle
 
 
@@ -17,16 +19,39 @@ class VehicleController:
 			"manufacturer",
 			"model",
 			"manufacture_date",
+			"manufacture_location",
+			"cylinder_count",
+			"door_count",
+			"weight",
+			"capacity",
+			"color",
+			"factory_options",
 			"list_price",
-			"status",
+			"delivery_date",
+			"delivery_mileage",
 		}
 	)
+	_INTEGER_FIELDS = frozenset(
+		{"cylinder_count", "door_count", "capacity", "delivery_mileage"}
+	)
+	_DATE_FIELDS = frozenset({"manufacture_date", "delivery_date"})
+	_LENGTH_LIMITS = {
+		"condition": 10,
+		"manufacturer": 50,
+		"model": 50,
+		"manufacture_location": 100,
+		"color": 30,
+	}
 
 	def get_inventory(self, available_only: bool = True) -> list[Vehicle]:
 		"""Retorna el inventario, filtrando disponibles de forma predeterminada."""
 		statement = select(Vehicle)
 		if available_only:
-			statement = statement.where(Vehicle.status == "Available")
+			statement = statement.where(
+				~Vehicle.sales_invoices.any(
+					SalesInvoice.status.in_(("pending", "approved", "completed"))
+				)
+			)
 		with SessionLocal() as session:
 			return session.scalars(statement).all()
 
@@ -39,21 +64,53 @@ class VehicleController:
 		if not isinstance(vehicle_id, str) or len(vehicle_id.strip()) != 17:
 			return False, "El VIN debe tener exactamente 17 caracteres."
 
-		raw_price = vehicle_data.get("list_price")
-		try:
-			list_price = Decimal(str(raw_price))
-		except (InvalidOperation, TypeError, ValueError):
-			return False, "El precio de lista debe ser un número mayor que 0."
-		if not list_price.is_finite() or list_price <= 0:
-			return False, "El precio de lista debe ser un número mayor que 0."
-
 		normalized_data = {
-			key: value
+			key: value.strip() if isinstance(value, str) else value
 			for key, value in vehicle_data.items()
 			if key in self._VEHICLE_FIELDS
 		}
 		normalized_data["id"] = vehicle_id.strip().upper()
-		normalized_data["list_price"] = list_price
+		for field, maximum in self._LENGTH_LIMITS.items():
+			value = normalized_data.get(field)
+			if value and len(value) > maximum:
+				return False, f"{field} no puede exceder {maximum} caracteres."
+		for field in self._INTEGER_FIELDS:
+			value = normalized_data.get(field)
+			if value in (None, ""):
+				normalized_data[field] = None
+				continue
+			try:
+				normalized_data[field] = int(value)
+			except (TypeError, ValueError):
+				return False, f"{field} debe ser un número entero."
+			if normalized_data[field] < 0:
+				return False, f"{field} no puede ser negativo."
+		for field in self._DATE_FIELDS:
+			value = normalized_data.get(field)
+			if value in (None, ""):
+				normalized_data[field] = None
+				continue
+			try:
+				normalized_data[field] = date.fromisoformat(value)
+			except (TypeError, ValueError):
+				return False, f"{field} debe tener formato AAAA-MM-DD."
+		for field in ("weight", "list_price"):
+			value = normalized_data.get(field)
+			if field == "weight" and value in (None, ""):
+				normalized_data[field] = None
+				continue
+			try:
+				amount = Decimal(str(value))
+			except (InvalidOperation, TypeError, ValueError):
+				return False, f"{field} debe ser un monto válido."
+			if not amount.is_finite() or amount < 0:
+				return False, f"{field} debe ser un monto no negativo."
+			normalized_data[field] = amount
+		if normalized_data["list_price"] <= 0:
+			return False, "El precio de lista debe ser mayor a 0."
+		for required_field in ("manufacturer", "model"):
+			if not normalized_data.get(required_field):
+				return False, f"{required_field} es obligatorio."
 
 		try:
 			with SessionLocal() as session:

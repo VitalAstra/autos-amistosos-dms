@@ -46,16 +46,11 @@ class CustomerView(QWidget):
 		self.phone_input = QLineEdit()
 		self.address_input = QLineEdit()
 		self.lead_source_input = QComboBox()
+		self.lead_source_input.setEditable(True)
+		self.lead_source_input.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
 		self.lead_source_input.addItem("Seleccionar origen", "")
-		self.lead_source_input.addItems(
-			[
-				"Sitio web",
-				"Redes sociales",
-				"Referido",
-				"Llamada telefónica",
-				"Visita al concesionario",
-				"Otro",
-			]
+		self.lead_source_input.lineEdit().setPlaceholderText(
+			"Selecciona o escribe un origen"
 		)
 
 		form_layout.addRow("Nombre", self.first_name_input)
@@ -135,6 +130,13 @@ class CustomerView(QWidget):
 
 		self._filter_rows(self.search_input.text())
 
+	def load_lead_sources(self, lead_sources):
+		current_text = self.lead_source_input.currentText()
+		self.lead_source_input.clear()
+		self.lead_source_input.addItem("Seleccionar origen", "")
+		self.lead_source_input.addItems(lead_sources)
+		self.lead_source_input.setCurrentText(current_text)
+
 	def get_form_data(self):
 		"""Retorna los datos ingresados en el formulario."""
 		return {
@@ -143,9 +145,9 @@ class CustomerView(QWidget):
 			"email": self.email_input.text().strip(),
 			"phone": self.phone_input.text().strip(),
 			"address": self.address_input.text().strip(),
-			"lead_source": self.lead_source_input.currentText()
-			if self.lead_source_input.currentData() != ""
-			else "",
+			"lead_source": ""
+			if self.lead_source_input.currentText() == "Seleccionar origen"
+			else self.lead_source_input.currentText().strip(),
 		}
 
 	def clear_form(self):

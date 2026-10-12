@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
@@ -20,10 +22,10 @@ class DashboardView(QWidget):
 	quick_action_requested = Signal(str)
 
 	_METRICS = (
-		("vehicles_available", "Vehículos Disponibles", "42"),
-		("monthly_sales", "Ventas del Mes", "18"),
-		("new_prospects", "Prospectos Nuevos", "105"),
-		("invoiced_revenue", "Ingresos Facturados", "$450,200.00"),
+		("vehicles_available", "Vehículos Disponibles", "0"),
+		("monthly_sales", "Ventas del Mes", "0"),
+		("new_prospects", "Prospectos Nuevos", "0"),
+		("invoiced_revenue", "Ingresos Facturados", "$0.00"),
 	)
 	_SALES_COLUMNS = ("Factura", "Cliente", "Vehículo", "Monto", "Fecha")
 	_SALES_KEYS = {
@@ -158,7 +160,7 @@ class DashboardView(QWidget):
 	@classmethod
 	def _get_sale_value(cls, sale, column):
 		keys = cls._SALES_KEYS[column]
-		if isinstance(sale, dict):
+		if isinstance(sale, Mapping):
 			for key in keys:
 				if key in sale:
 					return sale[key]
