@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from sqlalchemy import URL, create_engine
+from sqlalchemy import URL, create_engine, inspect
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 
@@ -43,7 +43,7 @@ SessionLocal = sessionmaker(bind=engine)
 
 
 def init_db() -> None:
-	"""Crea las tablas declaradas en los modelos que aún no existan."""
+	"""Valida que todos los modelos del dominio estén presentes en la base de datos."""
 	from importlib import import_module
 
 	for module_name in (
@@ -54,4 +54,23 @@ def init_db() -> None:
 		"models.vehicle",
 	):
 		import_module(module_name)
-	Base.metadata.create_all(bind=engine)
+
+	inspector = inspect(engine)
+	required_tables = {
+		"customer",
+		"employee",
+		"vehicle",
+		"sales_invoice",
+		"financing",
+		"trade_in",
+		"customization",
+		"insurance",
+		"warranty",
+		"survey",
+	}
+	missing_tables = sorted(required_tables - set(inspector.get_table_names()))
+	if missing_tables:
+		raise RuntimeError(
+			"No se encontró la estructura requerida en PostgreSQL: "
+			+ ", ".join(missing_tables)
+		)

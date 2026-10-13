@@ -1,6 +1,8 @@
+"""Asistente de venta conectado a las reglas del dominio."""
+
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
-from PySide6.QtCore import QEvent, QLocale, Qt, Signal
+from PySide6.QtCore import QLocale, Qt, Signal
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
 	QCheckBox,
@@ -22,15 +24,14 @@ from PySide6.QtWidgets import (
 )
 
 from config.settings import SALES_TAX_RATE
+from utils.sales_calculator import calculate_sale_totals
 from utils.validators import set_vin_validator
 
 
 class SalesView(QWidget):
-	"""Asistente de venta conectado a los datos y restricciones de PostgreSQL."""
+	"""Asistente de venta en tres pasos con cálculo de totales en vivo."""
 
 	sale_requested = Signal(dict)
-
-	_CENT = Decimal("0.01")
 
 	def __init__(self, parent=None):
 		super().__init__(parent)
@@ -68,9 +69,9 @@ class SalesView(QWidget):
 		self._set_step(0)
 		self._refresh_totals()
 
-	def load_selection_data(self, customers, vehicles, employees):
-		"""Carga clientes, vehículos disponibles y empleados existentes."""
-		self._vehicles_by_id = {}
+	def load_selection_data(self, customers, vehicles, employees=()):
+		"""Carga clientes, vehículos disponibles y vendedores."""
+		self._vehicles_by_id = {vehicle.id: vehicle for vehicle in vehicles}
 		self.customer_combo.clear()
 		self._customers_by_id = {}
 		for customer in customers:
@@ -83,17 +84,10 @@ class SalesView(QWidget):
 
 		self.vehicle_combo.clear()
 		for vehicle in vehicles:
-			self._vehicles_by_id[vehicle.id] = vehicle
 			description = " ".join(
-				part
-				for part in (vehicle.manufacturer, vehicle.model)
-				if part
+				part for part in (vehicle.manufacturer, vehicle.model) if part
 			)
-			label = (
-				f"{description} ({vehicle.id})"
-				if description
-				else vehicle.id
-			)
+			label = f"{description} ({vehicle.id})" if description else vehicle.id
 			self.vehicle_combo.addItem(label, vehicle.id)
 		self._configure_searchable_combo(
 			self.vehicle_combo, "Seleccionar vehículo"
@@ -102,20 +96,21 @@ class SalesView(QWidget):
 		self.employee_combo.clear()
 		for employee in employees:
 			name = f"{employee.first_name} {employee.last_name}".strip()
-			label = f"{name} — {employee.role}"
-			self.employee_combo.addItem(label, employee.employee_id)
+			self.employee_combo.addItem(
+				f"{name} — {employee.role}", employee.employee_id
+			)
 		self._configure_searchable_combo(
-			self.employee_combo, "Seleccionar empleado"
+			self.employee_combo, "Seleccionar vendedor"
 		)
 		self._update_price_from_vehicle()
 
 	@staticmethod
 	def _configure_searchable_combo(combo, placeholder):
-		"""Configura el autocompletado y evita seleccionar el primer registro."""
+		combo.setEditable(True)
+		combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
 		combo.setCurrentIndex(-1)
 		combo.clearEditText()
 		combo.lineEdit().setPlaceholderText(placeholder)
-
 		completer = QCompleter(combo.model(), combo)
 		completer.setCompletionRole(Qt.ItemDataRole.DisplayRole)
 		completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
@@ -142,28 +137,32 @@ class SalesView(QWidget):
 		if vehicle_id is None:
 			raise ValueError("Selecciona un vehículo disponible.")
 		if employee_id is None:
-			raise ValueError("Selecciona el empleado responsable de la venta.")
+			raise ValueError("Selecciona el vendedor responsable.")
 
 		negotiated_price = self._read_amount(
 			self.negotiated_price_input.text(), "El precio negociado"
 		)
+		if negotiated_price <= 0:
+			raise ValueError("El precio negociado debe ser mayor a cero.")
 		addons = self._get_addons_payload()
 		license_fee = self.plate_fee_input.value_decimal()
-		subtotal = self._calculate_subtotal(negotiated_price, addons)
-		tax_amount = self._calculate_tax(subtotal)
+		subtotal, tax_amount, total_amount = calculate_sale_totals(
+			negotiated_price, license_fee, addons
+		)
 		return {
 			"customer_id": customer_id,
 			"vehicle_id": vehicle_id,
 			"employee_id": employee_id,
-			"current_mileage": self.current_mileage_input.value(),
-			"negotiated_price": negotiated_price,
-			"tax_rate": SALES_TAX_RATE,
-			"license_fee": license_fee,
+			"sales_current_mileage": self.current_mileage_input.value(),
+			"sales_negotiated_price": negotiated_price,
+			"sales_tax_amount": tax_amount,
+			"sales_license_fee_amount": license_fee,
+			"sales_total_amount": total_amount,
 			"addons": addons,
 			"manager_approval": None,
 			"subtotal": subtotal,
 			"tax_amount": tax_amount,
-			"total_amount": subtotal + tax_amount + license_fee,
+			"total_amount": total_amount,
 		}
 
 	def show_sale_result(self, success, message):
@@ -182,44 +181,19 @@ class SalesView(QWidget):
 		form.setHorizontalSpacing(16)
 
 		self.customer_combo = QComboBox()
-		# Hacer el combobox editable y con autocompletado para búsqueda rápida
-		self.customer_combo.setEditable(True)
-		self.customer_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-		# Usar placeholder en el LineEdit del combo en lugar de un ítem real
-		try:
-			self.customer_combo.setCurrentIndex(-1)
-		except Exception:
-			pass
-		line_edit = self.customer_combo.lineEdit()
-		line_edit.setPlaceholderText("Seleccionar cliente")
-		line_edit.installEventFilter(self)
 		self.vehicle_combo = QComboBox()
-		# Hacer editable para permitir placeholder y búsqueda rápida
-		self.vehicle_combo.setEditable(True)
-		self.vehicle_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-		try:
-			self.vehicle_combo.setCurrentIndex(-1)
-		except Exception:
-			pass
-		vehicle_le = self.vehicle_combo.lineEdit()
-		vehicle_le.setPlaceholderText("Seleccionar vehículo")
-		vehicle_le.installEventFilter(self)
 		self.employee_combo = QComboBox()
-		# Hacer editable para placeholder y búsqueda por empleado
-		self.employee_combo.setEditable(True)
-		self.employee_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-		try:
-			self.employee_combo.setCurrentIndex(-1)
-		except Exception:
-			pass
-		emp_le = self.employee_combo.lineEdit()
-		emp_le.setPlaceholderText("Seleccionar empleado")
-		emp_le.installEventFilter(self)
+		for combo in (
+			self.customer_combo,
+			self.vehicle_combo,
+			self.employee_combo,
+		):
+			combo.setEditable(True)
+			combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+
 		self.negotiated_price_input = QLineEdit()
 		self.negotiated_price_input.setPlaceholderText("Precio negociado")
-		validator = QDoubleValidator(
-			0, 999999999, 2, self.negotiated_price_input
-		)
+		validator = QDoubleValidator(0, 999999999, 2, self.negotiated_price_input)
 		validator.setLocale(QLocale.c())
 		self.negotiated_price_input.setValidator(validator)
 		self.negotiated_price_input.textChanged.connect(self._refresh_totals)
@@ -232,7 +206,7 @@ class SalesView(QWidget):
 
 		form.addRow("Cliente", self.customer_combo)
 		form.addRow("Vehículo disponible", self.vehicle_combo)
-		form.addRow("Empleado responsable", self.employee_combo)
+		form.addRow("Vendedor", self.employee_combo)
 		form.addRow("Precio negociado", self.negotiated_price_input)
 		form.addRow("Kilometraje actual", self.current_mileage_input)
 		layout.addLayout(form)
@@ -245,26 +219,24 @@ class SalesView(QWidget):
 		scroll_area = QScrollArea()
 		scroll_area.setWidgetResizable(True)
 		scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-		addons_container = QWidget()
-		layout = QVBoxLayout(addons_container)
+		container = QWidget()
+		layout = QVBoxLayout(container)
 		layout.setContentsMargins(0, 0, 0, 0)
 		layout.setSpacing(8)
 
 		self.trade_in_checkbox = QCheckBox("Incluye Trade-In")
-		self.trade_in_description_input = QLineEdit()
-		self.trade_in_description_input.setPlaceholderText("VIN de 17 caracteres")
-		set_vin_validator(self.trade_in_description_input)
+		self.trade_in_vehicle_id_input = QLineEdit()
+		self.trade_in_vehicle_id_input.setPlaceholderText("VIN de 17 caracteres")
+		set_vin_validator(self.trade_in_vehicle_id_input)
 		self.trade_in_value_input = self._create_money_input()
 		self.trade_in_fields = self._create_addon_fields(
-			("VIN del vehículo recibido", self.trade_in_description_input),
-			("Valor de Trade-In", self.trade_in_value_input),
+			("VIN del vehículo recibido", self.trade_in_vehicle_id_input),
+			("Valor del Trade-In", self.trade_in_value_input),
 		)
 
-		self.financing_checkbox = QCheckBox("Requiere Financiamiento")
+		self.financing_checkbox = QCheckBox("Requiere financiamiento")
 		self.financing_source_input = QLineEdit()
-		self.financing_source_input.setPlaceholderText(
-			"Fuente del financiamiento"
-		)
+		self.financing_source_input.setPlaceholderText("Fuente del financiamiento")
 		self.financing_bank_input = QLineEdit()
 		self.financing_bank_input.setPlaceholderText("Banco")
 		self.financing_fields = self._create_addon_fields(
@@ -272,11 +244,17 @@ class SalesView(QWidget):
 			("Banco", self.financing_bank_input),
 		)
 
-		self.insurance_checkbox = QCheckBox("Seguro Incluido")
+		self.customization_checkbox = QCheckBox("Incluye personalización")
+		self.customization_type_input = QLineEdit()
+		self.customization_cost_input = self._create_money_input()
+		self.customization_fields = self._create_addon_fields(
+			("Tipo de personalización", self.customization_type_input),
+			("Costo", self.customization_cost_input),
+		)
+
+		self.insurance_checkbox = QCheckBox("Seguro incluido")
 		self.insurance_company_input = QLineEdit()
-		self.insurance_company_input.setPlaceholderText("Aseguradora")
 		self.insurance_policy_input = QLineEdit()
-		self.insurance_policy_input.setPlaceholderText("Número de póliza")
 		self.insurance_proof_checkbox = QCheckBox("Comprobante presentado")
 		self.insurance_fields = self._create_addon_fields(
 			("Aseguradora", self.insurance_company_input),
@@ -284,46 +262,36 @@ class SalesView(QWidget):
 			("Comprobante", self.insurance_proof_checkbox),
 		)
 
-		self.warranty_checkbox = QCheckBox("Garantía Extendida")
+		self.warranty_checkbox = QCheckBox("Garantía extendida")
 		self.warranty_type_input = QLineEdit()
-		self.warranty_type_input.setPlaceholderText("Tipo de garantía")
 		self.warranty_cost_input = self._create_money_input()
 		self.warranty_fields = self._create_addon_fields(
 			("Tipo de garantía", self.warranty_type_input),
 			("Costo extendido", self.warranty_cost_input),
 		)
 
-		self.customization_checkbox = QCheckBox("Personalización")
-		self.customization_type_input = QLineEdit()
-		self.customization_type_input.setPlaceholderText(
-			"Tipo de personalización"
-		)
-		self.customization_cost_input = self._create_money_input()
-		self.customization_fields = self._create_addon_fields(
-			("Tipo de personalización", self.customization_type_input),
-			("Costo", self.customization_cost_input),
-		)
-
 		for checkbox, fields in (
 			(self.trade_in_checkbox, self.trade_in_fields),
 			(self.financing_checkbox, self.financing_fields),
+			(self.customization_checkbox, self.customization_fields),
 			(self.insurance_checkbox, self.insurance_fields),
 			(self.warranty_checkbox, self.warranty_fields),
-			(self.customization_checkbox, self.customization_fields),
 		):
 			layout.addWidget(checkbox)
 			layout.addWidget(fields)
 			fields.setVisible(False)
 			checkbox.toggled.connect(fields.setVisible)
 			checkbox.toggled.connect(self._refresh_totals)
+
 		for field in (
 			self.trade_in_value_input,
-			self.warranty_cost_input,
 			self.customization_cost_input,
+			self.warranty_cost_input,
 		):
 			field.valueChanged.connect(self._refresh_totals)
+
 		layout.addStretch(1)
-		scroll_area.setWidget(addons_container)
+		scroll_area.setWidget(container)
 		page_layout.addWidget(scroll_area, 1)
 		return page
 
@@ -344,7 +312,7 @@ class SalesView(QWidget):
 		self.plate_fee_input.valueChanged.connect(self._refresh_totals)
 		totals_layout.addRow("Costo de placas", self.plate_fee_input)
 		totals_layout.addRow("Placas", self.plates_label)
-		totals_layout.addRow("Total Final", self.final_total_label)
+		totals_layout.addRow("Total final", self.final_total_label)
 		layout.addLayout(totals_layout)
 		layout.addStretch(1)
 		return page
@@ -380,28 +348,6 @@ class SalesView(QWidget):
 		input_field.setPrefix("$ ")
 		return input_field
 
-	def eventFilter(self, obj, event):
-		"""Limpia el placeholder al enfocar cualquier selector de la venta."""
-		combo_placeholders = {
-			self.customer_combo.lineEdit(): (
-				self.customer_combo, "Seleccionar cliente"
-			),
-			self.vehicle_combo.lineEdit(): (
-				self.vehicle_combo, "Seleccionar vehículo"
-			),
-			self.employee_combo.lineEdit(): (
-				self.employee_combo, "Seleccionar empleado"
-			),
-		}
-		if obj in combo_placeholders:
-			combo, placeholder = combo_placeholders[obj]
-			if event.type() == QEvent.FocusIn:
-				obj.setPlaceholderText("")
-			elif event.type() == QEvent.FocusOut:
-				if combo.currentIndex() < 0 and not obj.text():
-					obj.setPlaceholderText(placeholder)
-		return super().eventFilter(obj, event)
-
 	@staticmethod
 	def _create_total_label():
 		label = QLabel("$0.00")
@@ -412,16 +358,16 @@ class SalesView(QWidget):
 		addons = {
 			"trade_in": None,
 			"financing": None,
+			"customization": None,
 			"insurance": None,
 			"warranty": None,
-			"customization": None,
 		}
 		if self.trade_in_checkbox.isChecked():
-			old_vehicle_id = self.trade_in_description_input.text().strip().upper()
-			if len(old_vehicle_id) != 17:
+			vin = self.trade_in_vehicle_id_input.text().strip().upper()
+			if len(vin) != 17:
 				raise ValueError("El VIN del Trade-In debe tener 17 caracteres.")
 			addons["trade_in"] = {
-				"old_vehicle_id": old_vehicle_id,
+				"old_vehicle_id": vin,
 				"allowance": self.trade_in_value_input.value_decimal(),
 			}
 		if self.financing_checkbox.isChecked():
@@ -431,6 +377,14 @@ class SalesView(QWidget):
 			addons["financing"] = {
 				"source": source,
 				"bank_name": self.financing_bank_input.text().strip() or None,
+			}
+		if self.customization_checkbox.isChecked():
+			customization_type = self.customization_type_input.text().strip()
+			if not customization_type:
+				raise ValueError("Indica el tipo de personalización.")
+			addons["customization"] = {
+				"type": customization_type,
+				"cost": self.customization_cost_input.value_decimal(),
 			}
 		if self.insurance_checkbox.isChecked():
 			company = self.insurance_company_input.text().strip()
@@ -450,37 +404,7 @@ class SalesView(QWidget):
 				"type": warranty_type,
 				"extended_cost": self.warranty_cost_input.value_decimal(),
 			}
-		if self.customization_checkbox.isChecked():
-			customization_type = self.customization_type_input.text().strip()
-			if not customization_type:
-				raise ValueError("Indica el tipo de personalización.")
-			addons["customization"] = {
-				"type": customization_type,
-				"cost": self.customization_cost_input.value_decimal(),
-			}
 		return addons
-
-	@classmethod
-	def _calculate_subtotal(cls, negotiated_price, addons):
-		trade_in = addons["trade_in"]
-		warranty = addons["warranty"]
-		customization = addons["customization"]
-		subtotal = negotiated_price
-		if warranty:
-			subtotal += warranty["extended_cost"]
-		if customization:
-			subtotal += customization["cost"]
-		if trade_in:
-			subtotal -= trade_in["allowance"]
-		if subtotal < 0:
-			raise ValueError("El subtotal no puede ser negativo.")
-		return subtotal.quantize(cls._CENT, rounding=ROUND_HALF_UP)
-
-	@classmethod
-	def _calculate_tax(cls, subtotal):
-		return (subtotal * SALES_TAX_RATE).quantize(
-			cls._CENT, rounding=ROUND_HALF_UP
-		)
 
 	def _set_step(self, step_index):
 		self.step_stack.setCurrentIndex(step_index)
@@ -511,8 +435,12 @@ class SalesView(QWidget):
 		if self.vehicle_combo.currentData() is None:
 			raise ValueError("Selecciona un vehículo disponible.")
 		if self.employee_combo.currentData() is None:
-			raise ValueError("Selecciona el empleado responsable.")
-		self._read_amount(self.negotiated_price_input.text(), "El precio negociado")
+			raise ValueError("Selecciona el vendedor responsable.")
+		price = self._read_amount(
+			self.negotiated_price_input.text(), "El precio negociado"
+		)
+		if price <= 0:
+			raise ValueError("El precio negociado debe ser mayor a cero.")
 
 	def _submit_sale(self):
 		try:
@@ -524,17 +452,18 @@ class SalesView(QWidget):
 
 	def _refresh_totals(self, *_):
 		try:
-			price = self._read_amount(
-				self.negotiated_price_input.text(), "El precio negociado"
-			)
+			price_text = self.negotiated_price_input.text().strip()
+			price = self._read_amount(price_text, "El precio negociado") if price_text else Decimal("0")
 			addons = self._get_addons_payload()
-			subtotal = self._calculate_subtotal(price, addons)
-			tax_amount = self._calculate_tax(subtotal)
 			license_fee = self.plate_fee_input.value_decimal()
+			subtotal, tax_amount, total_amount = calculate_sale_totals(
+				price, license_fee, addons
+			)
 		except (InvalidOperation, ValueError):
 			for label in (
 				self.subtotal_label,
 				self.tax_label,
+				self.plates_label,
 				self.final_total_label,
 			):
 				label.setText("—")
@@ -543,9 +472,7 @@ class SalesView(QWidget):
 		self.subtotal_label.setText(self._format_money(subtotal))
 		self.tax_label.setText(self._format_money(tax_amount))
 		self.plates_label.setText(self._format_money(license_fee))
-		self.final_total_label.setText(
-			self._format_money(subtotal + tax_amount + license_fee)
-		)
+		self.final_total_label.setText(self._format_money(total_amount))
 
 	def _update_price_from_vehicle(self, *_):
 		vehicle_id = self.vehicle_combo.currentData()
@@ -558,39 +485,38 @@ class SalesView(QWidget):
 
 	def _reset_form(self):
 		self._set_step(0)
-		for combo, placeholder in (
-			(self.customer_combo, "Seleccionar cliente"),
-			(self.vehicle_combo, "Seleccionar vehículo"),
-			(self.employee_combo, "Seleccionar empleado"),
+		for combo in (
+			self.customer_combo,
+			self.vehicle_combo,
+			self.employee_combo,
 		):
 			combo.setCurrentIndex(-1)
 			combo.clearEditText()
-			combo.lineEdit().setPlaceholderText(placeholder)
 		self.current_mileage_input.setValue(0)
 		self.plate_fee_input.setValue(0)
 		for checkbox in (
 			self.trade_in_checkbox,
 			self.financing_checkbox,
+			self.customization_checkbox,
 			self.insurance_checkbox,
 			self.warranty_checkbox,
-			self.customization_checkbox,
 		):
 			checkbox.setChecked(False)
 		for field in (
-			self.trade_in_description_input,
+			self.trade_in_vehicle_id_input,
 			self.financing_source_input,
 			self.financing_bank_input,
+			self.customization_type_input,
 			self.insurance_company_input,
 			self.insurance_policy_input,
 			self.warranty_type_input,
-			self.customization_type_input,
 			self.negotiated_price_input,
 		):
 			field.clear()
 		for field in (
 			self.trade_in_value_input,
-			self.warranty_cost_input,
 			self.customization_cost_input,
+			self.warranty_cost_input,
 		):
 			field.setValue(0)
 		self.insurance_proof_checkbox.setChecked(False)

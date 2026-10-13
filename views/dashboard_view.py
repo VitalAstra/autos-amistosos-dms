@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
@@ -158,7 +160,7 @@ class DashboardView(QWidget):
 	@classmethod
 	def _get_sale_value(cls, sale, column):
 		keys = cls._SALES_KEYS[column]
-		if isinstance(sale, dict):
+		if isinstance(sale, Mapping):
 			for key in keys:
 				if key in sale:
 					return sale[key]

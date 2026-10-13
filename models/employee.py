@@ -1,8 +1,8 @@
-"""Modelo ORM de empleados para asignar las facturas de venta."""
+"""Modelo ORM de empleados, vendedores y supervisores."""
 
 from decimal import Decimal
 
-from sqlalchemy import Integer, Numeric, String
+from sqlalchemy import Boolean, Index, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from config.database import Base
@@ -10,6 +10,7 @@ from config.database import Base
 
 class Employee(Base):
 	__tablename__ = "employee"
+	__table_args__ = (Index("uq_employee_username", "employee_username", unique=True),)
 
 	employee_id: Mapped[int] = mapped_column(
 		Integer, primary_key=True, autoincrement=True
@@ -23,4 +24,15 @@ class Employee(Base):
 	role: Mapped[str] = mapped_column("employee_role", String(30), nullable=False)
 	commission_rate: Mapped[Decimal | None] = mapped_column(
 		"employee_commission_rate", Numeric(5, 2)
+	)
+	username: Mapped[str | None] = mapped_column("employee_username", String(50))
+	password_hash: Mapped[str | None] = mapped_column(
+		"employee_password_hash", String(255)
+	)
+	is_active: Mapped[bool] = mapped_column(
+		"employee_is_active",
+		Boolean,
+		nullable=False,
+		default=True,
+		server_default="true",
 	)

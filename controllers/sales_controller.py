@@ -1,190 +1,107 @@
-"""Operaciones de venta mediante transacciones SQLAlchemy ORM."""
+"""Operaciones transaccionales y ciclo de aprobación de ventas."""
 
-from datetime import date
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import re
 
-from sqlalchemy import func, select
+from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 
 from config.database import SessionLocal
 from models.customer import Customer
 from models.employee import Employee
+from models.sales_addons import Customization, Financing, Insurance, TradeIn, Warranty
 from models.sales_invoice import SalesInvoice
-from models.sales_addons import (
-	Customization,
-	Financing,
-	Insurance,
-	TradeIn,
-	Warranty,
-)
 from models.vehicle import Vehicle
+from utils.sales_calculator import calculate_sale_totals
 
 
 class SalesController:
-	"""Registra ventas y actualiza el inventario atómicamente."""
+	"""Registra ventas, comprueba disponibilidad y procesa aprobaciones."""
 
 	_CENT = Decimal("0.01")
+	_VIN_PATTERN = re.compile(r"[A-HJ-NPR-Z0-9]{17}")
+	_ACTIVE_STATUSES = ("pending", "approved", "completed")
 
-	def process_sale(
-		self,
-		customer_id: int,
-		vehicle_id: str,
-		negotiated_price: Decimal | str | int | float,
-		tax_rate: Decimal | str | int | float,
-		employee_id: int,
-		current_mileage: int,
-		license_fee: Decimal | str | int | float = 0,
-		addons: dict | None = None,
-		manager_approval: bool | None = None,
-	) -> tuple[bool, str]:
-		"""Registra una venta con sus complementos dentro de una transacción.
+	def process_sale(self, sale_data: dict) -> tuple[bool, str]:
+		"""Registra factura y complementos como pendientes de aprobación."""
+		if not isinstance(sale_data, dict):
+			return False, "Los datos de la venta no son válidos."
+		addons = sale_data.get("addons") or {}
+		if not isinstance(addons, dict):
+			return False, "Los datos de complementos no son válidos."
 
-		``tax_rate`` se expresa como fracción: por ejemplo, ``Decimal("0.13")``
-		representa un impuesto del 13 por ciento. El empleado es obligatorio
-		para guardar la referencia exigida por la factura. La disponibilidad
-		se determina por la ausencia de una factura para el VIN, según el esquema
-		actual de PostgreSQL.
-		"""
 		try:
-			price = self._to_nonnegative_decimal(negotiated_price, "El precio")
-			rate = self._to_nonnegative_decimal(tax_rate, "La tasa de impuestos")
-			if rate > 1:
-				raise ValueError("La tasa de impuestos debe estar entre 0 y 1.")
-			plate_cost = self._to_nonnegative_decimal(license_fee, "El costo de placas")
-			addon_data = self._validate_addons(addons or {})
-			additional_cost = (
-				addon_data["warranty"].get("extended_cost", Decimal("0"))
-				if addon_data["warranty"]
-				else Decimal("0")
-			) + (
-				addon_data["customization"].get("cost", Decimal("0"))
-				if addon_data["customization"]
-				else Decimal("0")
+			price = self._to_nonnegative_decimal(
+				sale_data.get("sales_negotiated_price"), "El precio negociado"
 			)
-			trade_in_allowance = (
-				addon_data["trade_in"].get("allowance", Decimal("0"))
-				if addon_data["trade_in"]
-				else Decimal("0")
+			if price <= 0:
+				raise ValueError("El precio negociado debe ser mayor a cero.")
+			license_fee = self._to_nonnegative_decimal(
+				sale_data.get("sales_license_fee_amount", 0), "La tarifa de placas"
 			)
-			taxable_subtotal = price + additional_cost - trade_in_allowance
-			if taxable_subtotal < 0:
-				raise ValueError("El subtotal de la venta no puede ser negativo.")
-			tax_amount = (taxable_subtotal * rate).quantize(
-				self._CENT, rounding=ROUND_HALF_UP
+			addon_data = self._validate_addons(addons)
+			_, tax_amount, total_amount = calculate_sale_totals(
+				price, license_fee, addon_data
 			)
-			total_amount = taxable_subtotal + tax_amount + plate_cost
-			if not isinstance(current_mileage, int) or current_mileage < 0:
-				raise ValueError("El kilometraje debe ser un entero no negativo.")
+			customer_id = int(sale_data["customer_id"])
+			employee_id = int(sale_data["employee_id"])
+			current_mileage = int(sale_data["sales_current_mileage"])
+			vehicle_id = str(sale_data["vehicle_id"]).strip().upper()
+			if current_mileage < 0:
+				raise ValueError("El kilometraje no puede ser negativo.")
+			if not self._VIN_PATTERN.fullmatch(vehicle_id):
+				raise ValueError(
+					"El VIN debe tener 17 caracteres alfanuméricos "
+					"y no puede incluir I, O ni Q."
+				)
 
 			with SessionLocal() as session:
-				try:
-					vehicle = session.scalars(
-						select(Vehicle)
-						.where(Vehicle.id == vehicle_id)
-						.where(~Vehicle.sales_invoices.any())
-						.with_for_update()
-					).one_or_none()
-					if vehicle is None:
-						raise ValueError(
-							"El vehículo no existe o ya tiene una factura asociada."
+				vehicle = session.scalars(
+					select(Vehicle)
+					.where(Vehicle.id == vehicle_id)
+					.where(
+						~Vehicle.sales_invoices.any(
+							SalesInvoice.status.in_(self._ACTIVE_STATUSES)
 						)
-					if session.get(Customer, customer_id) is None:
-						raise ValueError("No se encontró el cliente seleccionado.")
-					if session.get(Employee, employee_id) is None:
-						raise ValueError("No se encontró el empleado seleccionado.")
-
-					invoice = SalesInvoice(
-						customer_id=customer_id,
-						vehicle_id=vehicle.id,
-						employee_id=employee_id,
-						current_mileage=current_mileage,
-						negotiated_price=price,
-						manager_approval=manager_approval,
-						tax_amount=tax_amount,
-						license_fee_amount=plate_cost,
-						total_amount=total_amount,
 					)
-					session.add(invoice)
-					if addon_data["trade_in"]:
-						invoice.trade_in = TradeIn(**addon_data["trade_in"])
-					if addon_data["financing"]:
-						invoice.financing = Financing(**addon_data["financing"])
-					if addon_data["insurance"]:
-						invoice.insurance = Insurance(**addon_data["insurance"])
-					if addon_data["warranty"]:
-						invoice.warranty = Warranty(**addon_data["warranty"])
-					if addon_data["customization"]:
-						invoice.customization = Customization(
-							**addon_data["customization"]
-						)
-					session.commit()
-					invoice_id = invoice.id
-				except Exception:
-					session.rollback()
-					raise
+					.with_for_update()
+				).one_or_none()
+				if vehicle is None:
+					raise ValueError(
+						"El vehículo no existe o ya tiene una venta activa."
+					)
+				if session.get(Customer, customer_id) is None:
+					raise ValueError("No se encontró el cliente seleccionado.")
+				employee = session.get(Employee, employee_id)
+				if employee is None or not employee.is_active:
+					raise ValueError("El vendedor no existe o está inactivo.")
+				if employee.role.casefold() != "salesperson":
+					raise ValueError("La venta debe registrarse con un vendedor.")
 
-			return True, f"Venta registrada con factura {invoice_id}."
-		except Exception as error:
-			return False, str(error)
-
-	def get_dashboard_data(self) -> dict[str, int | str]:
-		"""Consulta métricas actuales para el panel principal."""
-		today = date.today()
-		month_start = today.replace(day=1)
-		with SessionLocal() as session:
-			available_vehicles = session.scalar(
-				select(func.count())
-				.select_from(Vehicle)
-				.where(~Vehicle.sales_invoices.any())
-			)
-			monthly_sales = session.scalar(
-				select(func.count())
-				.select_from(SalesInvoice)
-				.where(SalesInvoice.date >= month_start, SalesInvoice.date <= today)
-			)
-			new_prospects = session.scalar(
-				select(func.count())
-				.select_from(Customer)
-				.where(Customer.status_type == "Potential")
-			)
-			revenue = session.scalar(
-				select(func.coalesce(func.sum(SalesInvoice.total_amount), 0)).where(
-					SalesInvoice.date >= month_start, SalesInvoice.date <= today
+				invoice = SalesInvoice(
+					customer_id=customer_id,
+					vehicle_id=vehicle.id,
+					employee_id=employee_id,
+					current_mileage=current_mileage,
+					negotiated_price=price,
+					manager_approval=None,
+					tax_amount=tax_amount,
+					license_fee_amount=license_fee,
+					total_amount=total_amount,
+					status="pending",
 				)
-			)
-		return {
-			"vehicles_available": available_vehicles or 0,
-			"monthly_sales": monthly_sales or 0,
-			"new_prospects": new_prospects or 0,
-			"invoiced_revenue": f"${Decimal(str(revenue or 0)):,.2f}",
-		}
+				session.add(invoice)
+				session.flush()
+				self._add_sale_addons(invoice, addon_data)
+				session.commit()
+				invoice_id = invoice.id
 
-	def get_recent_sales(self, limit: int = 5) -> list[dict[str, object]]:
-		"""Obtiene las facturas recientes como filas listas para el dashboard."""
-		if limit < 1:
-			raise ValueError("El límite debe ser mayor que cero.")
-		with SessionLocal() as session:
-			rows = session.execute(
-				select(SalesInvoice, Customer, Vehicle)
-				.join(SalesInvoice.customer)
-				.join(SalesInvoice.vehicle)
-				.order_by(SalesInvoice.date.desc(), SalesInvoice.id.desc())
-				.limit(limit)
-			).all()
-		return [
-			{
-				"Factura": invoice.id,
-				"Cliente": f"{customer.first_name} {customer.last_name}".strip(),
-				"Vehículo": " ".join(
-					part
-					for part in (vehicle.manufacturer, vehicle.model)
-					if part
-				),
-				"Monto": f"${invoice.total_amount:,.2f}",
-				"Fecha": invoice.date.isoformat(),
-			}
-			for invoice, customer, vehicle in rows
-		]
+			return True, f"Venta {invoice_id} enviada a aprobación del supervisor."
+		except (KeyError, TypeError, ValueError, InvalidOperation) as error:
+			return False, str(error)
+		except Exception as error:
+			return False, f"No se pudo registrar la venta: {error}"
 
 	def get_sales_history(self) -> list[dict[str, object]]:
 		"""Retorna facturas con sus clientes, vehículos y empleados relacionados."""
@@ -219,35 +136,113 @@ class SalesController:
 			for invoice, customer, vehicle, employee in rows
 		]
 
+	def list_reviewable_sales(self) -> list[SalesInvoice]:
+		"""Lista ventas pendientes y aprobadas para supervisión."""
+		with SessionLocal() as session:
+			return session.scalars(
+				select(SalesInvoice)
+				.options(
+					joinedload(SalesInvoice.customer),
+					joinedload(SalesInvoice.vehicle),
+					joinedload(SalesInvoice.employee),
+				)
+				.where(SalesInvoice.status.in_(("pending", "approved")))
+				.order_by(SalesInvoice.date, SalesInvoice.id)
+			).all()
+
+	def list_pending_sales(self) -> list[SalesInvoice]:
+		"""Alias compatible: incluye aprobadas para permitir su cancelación."""
+		return self.list_reviewable_sales()
+
+	def approve_sale(self, invoice_id: int, supervisor_id: int) -> tuple[bool, str]:
+		return self._review_sale(invoice_id, supervisor_id, "approved")
+
+	def reject_sale(
+		self, invoice_id: int, supervisor_id: int, reason: str
+	) -> tuple[bool, str]:
+		if not isinstance(reason, str) or not reason.strip():
+			return False, "El motivo de rechazo es obligatorio."
+		return self._review_sale(
+			invoice_id, supervisor_id, "rejected", reason.strip()
+		)
+
+	def cancel_sale(
+		self, invoice_id: int, supervisor_id: int, reason: str
+	) -> tuple[bool, str]:
+		if not isinstance(reason, str) or not reason.strip():
+			return False, "El motivo de cancelación es obligatorio."
+		return self._review_sale(
+			invoice_id, supervisor_id, "cancelled", reason.strip()
+		)
+
+	def _review_sale(
+		self, invoice_id: int, supervisor_id: int, decision: str, reason=None
+	) -> tuple[bool, str]:
+		try:
+			with SessionLocal() as session:
+				invoice = session.scalars(
+					select(SalesInvoice)
+					.where(SalesInvoice.id == invoice_id)
+					.with_for_update()
+				).one_or_none()
+				if invoice is None:
+					return False, "No se encontró la factura."
+				supervisor = session.get(Employee, supervisor_id)
+				if (
+					supervisor is None
+					or not supervisor.is_active
+					or supervisor.role.casefold() not in {"manager", "administrator"}
+				):
+					return False, "Se requiere un supervisor activo para esta acción."
+
+				now = datetime.now(timezone.utc)
+				if decision in {"approved", "rejected"}:
+					if invoice.status != "pending":
+						return False, "La factura ya no está pendiente de aprobación."
+					if decision == "approved":
+						invoice.manager_approval = True
+						invoice.approved_by_employee_id = supervisor_id
+						invoice.approved_at = now
+						invoice.rejected_by_employee_id = None
+						invoice.rejected_at = None
+						invoice.rejection_reason = None
+					else:
+						invoice.manager_approval = False
+						invoice.rejected_by_employee_id = supervisor_id
+						invoice.rejected_at = now
+						invoice.rejection_reason = reason
+						invoice.approved_by_employee_id = None
+						invoice.approved_at = None
+				else:
+					if invoice.status not in {"pending", "approved"}:
+						return False, "Solo se puede cancelar una venta activa."
+					invoice.manager_approval = False
+					invoice.cancelled_by_employee_id = supervisor_id
+					invoice.cancelled_at = now
+					invoice.cancellation_reason = reason
+					invoice.approved_by_employee_id = None
+					invoice.approved_at = None
+					invoice.rejected_by_employee_id = None
+					invoice.rejected_at = None
+					invoice.rejection_reason = None
+
+				invoice.status = decision
+				session.commit()
+			return True, f"Factura {invoice_id}: {decision}."
+		except Exception as error:
+			return False, f"No se pudo revisar la factura: {error}"
+
 	@classmethod
 	def _validate_addons(cls, addons: dict) -> dict[str, dict | None]:
-		if not isinstance(addons, dict):
-			raise ValueError("Los datos de adicionales deben ser un diccionario.")
-
 		specifications = {
-			"trade_in": {
-				"required": {"old_vehicle_id"},
-				"money": {"allowance"},
-			},
-			"financing": {
-				"required": {"source"},
-				"money": set(),
-			},
-			"insurance": {
-				"required": {"company", "policy_number"},
-				"money": set(),
-			},
-			"warranty": {
-				"required": {"type"},
-				"money": {"extended_cost"},
-			},
-			"customization": {
-				"required": {"type"},
-				"money": {"cost"},
-			},
+			"trade_in": ({"old_vehicle_id"}, {"allowance"}),
+			"financing": ({"source"}, set()),
+			"insurance": ({"company", "policy_number"}, set()),
+			"warranty": ({"type"}, {"extended_cost"}),
+			"customization": ({"type"}, {"cost"}),
 		}
 		normalized: dict[str, dict | None] = {}
-		for name, specification in specifications.items():
+		for name, (required, money_fields) in specifications.items():
 			values = addons.get(name)
 			if values is None:
 				normalized[name] = None
@@ -255,19 +250,19 @@ class SalesController:
 			if not isinstance(values, dict):
 				raise ValueError(f"Los datos de {name} deben ser un diccionario.")
 			data = dict(values)
-			missing_fields = specification["required"] - data.keys()
+			missing_fields = required - data.keys()
 			if missing_fields:
 				missing = ", ".join(sorted(missing_fields))
 				raise ValueError(f"Faltan campos de {name}: {missing}.")
-			for field in specification["money"]:
+			for field in money_fields:
 				if field in data:
 					data[field] = cls._to_nonnegative_decimal(
 						data[field], f"El importe de {name}"
 					)
 			if name == "trade_in":
 				vin = data["old_vehicle_id"]
-				if not isinstance(vin, str) or not re.fullmatch(
-					r"[A-HJ-NPR-Z0-9]{17}", vin.strip().upper()
+				if not isinstance(vin, str) or not cls._VIN_PATTERN.fullmatch(
+					vin.strip().upper()
 				):
 					raise ValueError(
 						"El VIN del Trade-In debe tener 17 caracteres "
@@ -278,6 +273,19 @@ class SalesController:
 				data["proof_submitted"] = bool(data.get("proof_submitted", False))
 			normalized[name] = data
 		return normalized
+
+	@staticmethod
+	def _add_sale_addons(invoice: SalesInvoice, addons: dict) -> None:
+		if addons["trade_in"]:
+			invoice.trade_ins.append(TradeIn(**addons["trade_in"]))
+		if addons["financing"]:
+			invoice.financing.append(Financing(**addons["financing"]))
+		if addons["customization"]:
+			invoice.customizations.append(Customization(**addons["customization"]))
+		if addons["insurance"]:
+			invoice.insurances.append(Insurance(**addons["insurance"]))
+		if addons["warranty"]:
+			invoice.warranties.append(Warranty(**addons["warranty"]))
 
 	@classmethod
 	def _to_nonnegative_decimal(cls, value, label: str) -> Decimal:

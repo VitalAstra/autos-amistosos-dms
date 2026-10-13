@@ -27,9 +27,7 @@ class Customer(Base):
 	phone: Mapped[str | None] = mapped_column("customer_phone", String(20))
 	address: Mapped[str | None] = mapped_column("customer_address", String(150))
 	status_type: Mapped[str | None] = mapped_column(
-		"customer_status_type",
-		String(20),
-		default="Potential",
+		"customer_status_type", String(20), default="Potential"
 	)
 	lead_source: Mapped[str | None] = mapped_column(
 		"customer_lead_source", String(50)
