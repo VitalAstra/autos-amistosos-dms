@@ -92,6 +92,7 @@ class SalesInvoice(Base):
 		server_default="completed",
 	)
 	approved_by_employee_id: Mapped[int | None] = mapped_column(
+		"sales_approved_by_employee_id",
 		ForeignKey(
 			"employee.employee_id",
 			ondelete="SET NULL",
@@ -102,6 +103,7 @@ class SalesInvoice(Base):
 		"sales_approved_at", DateTime(timezone=True)
 	)
 	rejected_by_employee_id: Mapped[int | None] = mapped_column(
+		"sales_rejected_by_employee_id",
 		ForeignKey(
 			"employee.employee_id",
 			ondelete="SET NULL",
@@ -115,6 +117,7 @@ class SalesInvoice(Base):
 		"sales_rejection_reason", String(250)
 	)
 	cancelled_by_employee_id: Mapped[int | None] = mapped_column(
+		"sales_cancelled_by_employee_id",
 		ForeignKey(
 			"employee.employee_id",
 			ondelete="SET NULL",

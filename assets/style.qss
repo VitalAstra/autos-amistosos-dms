@@ -14,20 +14,48 @@ QMessageBox {
 
 QWidget#centralWidget {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 #F3F7F9, stop:1 #EEF3F1);
+        stop:0 #F2F7FC, stop:0.55 #F7F8FC, stop:1 #F0F7F5);
     color: #212529;
 }
 
 QFrame#card {
-    background-color: #FFFFFF;
-    border: 1px solid #E5E7EB;
+    background-color: #FEFFFF;
+    border: 1px solid #DCE7EF;
     border-radius: 12px;
 }
 
 QFrame#subCard {
-    background-color: #F8F9FA;
-    border: 1px solid #E9ECEF;
-    border-radius: 6px;
+    background-color: #F0F7F5;
+    border: 1px solid #D8EAE3;
+    border-radius: 8px;
+}
+
+QFrame#metricCard[tone="blue"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #F1F7FF, stop:1 #E7F0FC);
+    border: 1px solid #D5E4F5;
+    border-radius: 12px;
+}
+
+QFrame#metricCard[tone="green"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #F1FAF5, stop:1 #E5F4EC);
+    border: 1px solid #D3E9DC;
+    border-radius: 12px;
+}
+
+QFrame#metricCard[tone="peach"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #FFF8F1, stop:1 #FCEEDF);
+    border: 1px solid #F1E1CE;
+    border-radius: 12px;
+}
+
+QFrame#metricCard[tone="lavender"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #F8F5FF, stop:1 #EEE9FA);
+    border: 1px solid #E1D9F1;
+    border-radius: 12px;
 }
 
 QLabel#viewTitle,
@@ -125,7 +153,8 @@ QPushButton {
 }
 
 QPushButton:hover {
-    background-color: #E5E7EB;
+    background-color: #E8F0F8;
+    border-color: #C9DAEA;
 }
 
 QPushButton:pressed {
@@ -139,8 +168,8 @@ QPushButton:disabled {
 
 QFrame#sidebar {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-        stop:0 #FFFFFF, stop:1 #F8FAFC);
-    border: 1px solid #E2E8F0;
+        stop:0 #F8FBFF, stop:1 #EEF4FA);
+    border: 1px solid #DCE7F1;
     border-radius: 12px;
 }
 
@@ -154,13 +183,13 @@ QPushButton#navButton {
 }
 
 QPushButton#navButton:hover {
-    background-color: #F1F5F9;
+    background-color: #EAF2F8;
 }
 
 QPushButton#navButton[active="true"] {
-    background-color: #DBEAFE;
-    color: #1E3A8A;
-    border-color: #BFDBFE;
+    background-color: #DDECF8;
+    color: #1E4568;
+    border-color: #C3D9EB;
 }
 
 QLineEdit,
@@ -183,7 +212,8 @@ QSpinBox:focus,
 QDoubleSpinBox:focus,
 QDateEdit:focus,
 QDateTimeEdit:focus {
-    border: 1px solid #3B82F6;
+    border: 1px solid #77A9CD;
+    background-color: #FCFEFF;
 }
 
 QComboBox::drop-down {
@@ -209,8 +239,8 @@ QMenu::item {
 QAbstractItemView::item:selected,
 QListView::item:selected,
 QMenu::item:selected {
-    background-color: #DEE2E6;
-    color: #212529;
+    background-color: #E2EEF7;
+    color: #1F2937;
 }
 
 /* Dialogs y MessageBoxes */
@@ -272,20 +302,20 @@ QCalendarWidget QAbstractItemView {
 /* Tablas: encabezados sobrios y filas alternadas. */
 QTableWidget,
 QTableView {
-    background-color: #FFFFFF;
-    alternate-background-color: #F8FAFC;
-    border: 1px solid #E2E8F0;
+    background-color: #FEFFFF;
+    alternate-background-color: #F5F9FC;
+    border: 1px solid #DCE7EF;
     border-radius: 8px;
-    gridline-color: #E2E8F0;
-    selection-background-color: #DBEAFE;
+    gridline-color: #E5EDF3;
+    selection-background-color: #E2EEF7;
     selection-color: #0F172A;
 }
 
 QHeaderView::section {
-    background-color: #F1F5F9;
-    color: #334155;
+    background-color: #EAF2F7;
+    color: #344B5D;
     border: 0;
-    border-bottom: 1px solid #E2E8F0;
+    border-bottom: 1px solid #DCE7EF;
     padding: 9px 8px;
     font-weight: 700;
 }
@@ -303,7 +333,7 @@ QTableView::item {
 
 QTableWidget::item:selected,
 QTableView::item:selected {
-    background-color: #DBEAFE;
+    background-color: #E2EEF7;
     color: #0F172A;
 }
 

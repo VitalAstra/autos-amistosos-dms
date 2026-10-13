@@ -1,4 +1,4 @@
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QEvent, QTimer, Signal
 from PySide6.QtWidgets import (
 	QComboBox,
 	QFormLayout,
@@ -17,6 +17,18 @@ from PySide6.QtWidgets import (
 
 class CustomerView(QWidget):
 	"""Interfaz para registrar, buscar y consultar clientes."""
+
+	_LEAD_SOURCE_PLACEHOLDER = "Selecciona un origen"
+	_DEFAULT_LEAD_SOURCES = (
+		"Recomendación",
+		"Redes sociales",
+		"Sitio web",
+		"Publicidad",
+		"Visita al concesionario",
+		"Llamada telefónica",
+		"Cliente recurrente",
+		"Otro",
+	)
 
 	save_requested = Signal(dict)
 	update_requested = Signal(dict)
@@ -52,17 +64,19 @@ class CustomerView(QWidget):
 		self.lead_source_input = QComboBox()
 		self.lead_source_input.setEditable(True)
 		self.lead_source_input.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-		self.lead_source_input.addItem("Seleccionar origen", "")
+		self.lead_source_input.setMaxVisibleItems(12)
+		self.lead_source_input.addItem(self._LEAD_SOURCE_PLACEHOLDER, "")
 		self.lead_source_input.lineEdit().setPlaceholderText(
-			"Selecciona o escribe un origen"
+			"Selecciona o escribe el origen del cliente"
 		)
+		self.lead_source_input.lineEdit().installEventFilter(self)
 
 		form_layout.addRow("Nombre", self.first_name_input)
 		form_layout.addRow("Apellidos", self.last_name_input)
-		form_layout.addRow("Email", self.email_input)
+		form_layout.addRow("Correo electrónico", self.email_input)
 		form_layout.addRow("Teléfono", self.phone_input)
 		form_layout.addRow("Dirección", self.address_input)
-		form_layout.addRow("Lead Source", self.lead_source_input)
+		form_layout.addRow("Origen del cliente", self.lead_source_input)
 
 		# Botones: Guardar / Limpiar / Actualizar / Eliminar
 		self.save_button = QPushButton("Guardar")
@@ -122,7 +136,7 @@ class CustomerView(QWidget):
 
 		self.customers_table = QTableWidget(0, 5)
 		self.customers_table.setHorizontalHeaderLabels(
-			["ID", "Nombre Completo", "Email", "Teléfono", "Origen"]
+			["ID", "Nombre completo", "Correo electrónico", "Teléfono", "Origen"]
 		)
 		self.customers_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
 		self.customers_table.setSelectionBehavior(
@@ -142,6 +156,15 @@ class CustomerView(QWidget):
 
 		main_layout.addWidget(left_section, 1)
 		main_layout.addWidget(right_section, 2)
+
+	def eventFilter(self, watched, event):
+		if (
+			watched is self.lead_source_input.lineEdit()
+			and event.type() == QEvent.Type.MouseButtonPress
+			and not self.lead_source_input.view().isVisible()
+		):
+			QTimer.singleShot(0, self.lead_source_input.showPopup)
+		return super().eventFilter(watched, event)
 
 	def load_data(self, customers):
 		"""Puebla la tabla con instancias ORM de cliente."""
@@ -176,8 +199,18 @@ class CustomerView(QWidget):
 	def load_lead_sources(self, lead_sources):
 		current_text = self.lead_source_input.currentText()
 		self.lead_source_input.clear()
-		self.lead_source_input.addItem("Seleccionar origen", "")
-		self.lead_source_input.addItems(lead_sources)
+		self.lead_source_input.addItem(self._LEAD_SOURCE_PLACEHOLDER, "")
+		sources = dict.fromkeys(
+			source.strip()
+			for source in (*self._DEFAULT_LEAD_SOURCES, *lead_sources)
+			if isinstance(source, str) and source.strip()
+		)
+		for source in sources:
+			self.lead_source_input.addItem(source, source)
+
+		if current_text.strip() == self._LEAD_SOURCE_PLACEHOLDER:
+			self.lead_source_input.setCurrentIndex(0)
+			return
 		self.lead_source_input.setCurrentText(current_text)
 
 	def get_form_data(self):
@@ -188,12 +221,14 @@ class CustomerView(QWidget):
 			"email": self.email_input.text().strip(),
 			"phone": self.phone_input.text().strip(),
 			"address": self.address_input.text().strip(),
-			"lead_source": (
-				self.lead_source_input.currentText().strip()
-				if self.lead_source_input.currentIndex() != 0
-				else ""
-			),
+			"lead_source": self._selected_lead_source(),
 		}
+
+	def _selected_lead_source(self):
+		source = self.lead_source_input.currentText().strip()
+		if source == self._LEAD_SOURCE_PLACEHOLDER:
+			return ""
+		return source
 
 	def clear_form(self):
 		"""Limpia los campos del formulario."""
@@ -248,10 +283,15 @@ class CustomerView(QWidget):
 		# Seleccionar lead source si existe
 		index = 0
 		for i in range(self.lead_source_input.count()):
-			if self.lead_source_input.itemText(i) == (customer.lead_source or ""):
+			if self.lead_source_input.itemText(i).casefold() == (
+				customer.lead_source or ""
+			).casefold():
 				index = i
 				break
-		self.lead_source_input.setCurrentIndex(index)
+		if index == 0 and customer.lead_source:
+			self.lead_source_input.setEditText(customer.lead_source)
+		else:
+			self.lead_source_input.setCurrentIndex(index)
 
 	def _filter_rows(self, text):
 		query = text.strip().casefold()

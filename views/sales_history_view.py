@@ -73,11 +73,11 @@ class SalesHistoryView(QWidget):
 			("customer_name", "Cliente"),
 			("vehicle", "Vehículo"),
 			("vehicle_id", "VIN"),
-			("employee_name", "Empleado"),
+			("employee_name", "Vendedor"),
 			("negotiated_price", "Precio negociado"),
 			("tax_amount", "Impuestos"),
-			("license_fee_amount", "Placas"),
-			("total_amount", "Total final"),
+			("license_fee_amount", "Costo de placas"),
+			("total_amount", "Total"),
 		):
 			value_label = QLabel("—")
 			value_label.setWordWrap(True)
@@ -107,7 +107,9 @@ class SalesHistoryView(QWidget):
 					row, column, QTableWidgetItem(text)
 				)
 		if not self._sales:
-			self.title.setText("Historial de ventas — No hay facturas registradas")
+			self.title.setText(
+				"Historial de ventas — No hay ventas registradas"
+			)
 		else:
 			self.title.setText("Historial de ventas")
 

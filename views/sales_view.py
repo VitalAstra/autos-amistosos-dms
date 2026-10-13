@@ -55,7 +55,7 @@ class SalesView(QWidget):
 		navigation_layout = QHBoxLayout()
 		self.back_button = QPushButton("Anterior")
 		self.next_button = QPushButton("Continuar")
-		self.process_button = QPushButton("Procesar Factura de Venta")
+		self.process_button = QPushButton("Registrar venta")
 		self.process_button.setObjectName("primaryButton")
 		self.back_button.clicked.connect(self._go_back)
 		self.next_button.clicked.connect(self._go_forward)
@@ -159,7 +159,6 @@ class SalesView(QWidget):
 			"sales_license_fee_amount": license_fee,
 			"sales_total_amount": total_amount,
 			"addons": addons,
-			"manager_approval": None,
 			"subtotal": subtotal,
 			"tax_amount": tax_amount,
 			"total_amount": total_amount,
@@ -224,14 +223,14 @@ class SalesView(QWidget):
 		layout.setContentsMargins(0, 0, 0, 0)
 		layout.setSpacing(8)
 
-		self.trade_in_checkbox = QCheckBox("Incluye Trade-In")
+		self.trade_in_checkbox = QCheckBox("Incluye vehículo como parte de pago")
 		self.trade_in_vehicle_id_input = QLineEdit()
 		self.trade_in_vehicle_id_input.setPlaceholderText("VIN de 17 caracteres")
 		set_vin_validator(self.trade_in_vehicle_id_input)
 		self.trade_in_value_input = self._create_money_input()
 		self.trade_in_fields = self._create_addon_fields(
 			("VIN del vehículo recibido", self.trade_in_vehicle_id_input),
-			("Valor del Trade-In", self.trade_in_value_input),
+			("Valor del vehículo recibido", self.trade_in_value_input),
 		)
 
 		self.financing_checkbox = QCheckBox("Requiere financiamiento")
@@ -365,7 +364,9 @@ class SalesView(QWidget):
 		if self.trade_in_checkbox.isChecked():
 			vin = self.trade_in_vehicle_id_input.text().strip().upper()
 			if len(vin) != 17:
-				raise ValueError("El VIN del Trade-In debe tener 17 caracteres.")
+				raise ValueError(
+					"El VIN del vehículo recibido debe tener 17 caracteres."
+				)
 			addons["trade_in"] = {
 				"old_vehicle_id": vin,
 				"allowance": self.trade_in_value_input.value_decimal(),

@@ -22,10 +22,10 @@ class DashboardView(QWidget):
 	quick_action_requested = Signal(str)
 
 	_METRICS = (
-		("vehicles_available", "Vehículos Disponibles", "0"),
-		("monthly_sales", "Ventas del Mes", "0"),
-		("new_prospects", "Prospectos Nuevos", "0"),
-		("invoiced_revenue", "Ingresos Facturados", "$0.00"),
+		("vehicles_available", "Vehículos disponibles", "0", "blue"),
+		("monthly_sales", "Ventas del mes", "0", "green"),
+		("new_prospects", "Clientes potenciales", "0", "peach"),
+		("invoiced_revenue", "Ingresos facturados", "$0.00", "lavender"),
 	)
 	_SALES_COLUMNS = ("Factura", "Cliente", "Vehículo", "Monto", "Fecha")
 	_SALES_KEYS = {
@@ -36,9 +36,9 @@ class DashboardView(QWidget):
 		"Fecha": ("Fecha", "date"),
 	}
 	_QUICK_ACTIONS = (
-		"Registrar Cliente",
-		"Alta de Vehículo",
-		"Nueva Venta",
+		"Registrar cliente",
+		"Alta de vehículo",
+		"Nueva venta",
 	)
 
 	def __init__(self, parent=None):
@@ -51,8 +51,10 @@ class DashboardView(QWidget):
 		metrics_row = QHBoxLayout()
 		metrics_row.setSpacing(12)
 		self.metric_values = {}
-		for key, title, initial_value in self._METRICS:
-			card, value_label = self._create_metric_card(title, initial_value)
+		for key, title, initial_value, tone in self._METRICS:
+			card, value_label = self._create_metric_card(
+				title, initial_value, tone
+			)
 			self.metric_values[key] = value_label
 			metrics_row.addWidget(card)
 		main_layout.addLayout(metrics_row)
@@ -138,8 +140,10 @@ class DashboardView(QWidget):
 		return card
 
 	@classmethod
-	def _create_metric_card(cls, title, initial_value):
+	def _create_metric_card(cls, title, initial_value, tone):
 		card = cls._create_card()
+		card.setObjectName("metricCard")
+		card.setProperty("tone", tone)
 		layout = QVBoxLayout(card)
 		layout.setContentsMargins(16, 16, 16, 16)
 		layout.setSpacing(8)

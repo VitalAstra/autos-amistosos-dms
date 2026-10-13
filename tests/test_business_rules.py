@@ -4,6 +4,7 @@ from unittest.mock import patch
 from controllers.auth_controller import AuthController
 from controllers.sales_controller import SalesController
 from controllers.vehicle_controller import VehicleController
+from config.database import Base, init_db
 from models.vehicle import Vehicle
 from utils.sales_calculator import calculate_sale_totals
 
@@ -25,6 +26,29 @@ class FakeSession:
 
 
 class BusinessRulesTests(unittest.TestCase):
+	def test_startup_reports_missing_sales_status_migration_column(self):
+		class FakeInspector:
+			def get_table_names(self):
+				return list(Base.metadata.tables)
+
+			def get_columns(self, table_name):
+				columns = Base.metadata.tables[table_name].columns
+				return [
+					{"name": column.name}
+					for column in columns
+					if not (
+						table_name == "sales_invoice"
+						and column.name == "sales_status"
+					)
+				]
+
+		with patch("config.database.inspect", return_value=FakeInspector()):
+			with self.assertRaisesRegex(
+				RuntimeError, "sales_invoice.sales_status"
+			) as error:
+				init_db()
+		self.assertIn("alembic upgrade head", str(error.exception))
+
 	def test_sale_total_uses_tax_and_trade_in(self):
 		subtotal, tax, total = calculate_sale_totals(
 			"100.00",

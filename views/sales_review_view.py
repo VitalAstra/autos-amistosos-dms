@@ -26,6 +26,13 @@ class SalesReviewView(QWidget):
 		"Vendedor",
 		"Total USD",
 	)
+	_STATUS_LABELS = {
+		"pending": "Pendiente",
+		"approved": "Aprobada",
+		"rejected": "Rechazada",
+		"cancelled": "Cancelada",
+		"completed": "Completada",
+	}
 
 	def __init__(self, parent=None):
 		super().__init__(parent)
@@ -78,7 +85,7 @@ class SalesReviewView(QWidget):
 			employee = invoice.employee
 			values = (
 				invoice.id,
-				invoice.status,
+				self._STATUS_LABELS.get(invoice.status, invoice.status),
 				invoice.date,
 				f"{customer.first_name} {customer.last_name}",
 				f"{vehicle.manufacturer} {vehicle.model} ({vehicle.id})",
@@ -115,6 +122,12 @@ class SalesReviewView(QWidget):
 		row = self.sales_table.currentRow()
 		status_item = self.sales_table.item(row, 1) if row >= 0 else None
 		status = status_item.text() if status_item else ""
-		self.approve_button.setEnabled(status == "pending")
-		self.reject_button.setEnabled(status == "pending")
-		self.cancel_button.setEnabled(status in {"pending", "approved"})
+		self.approve_button.setEnabled(status == self._STATUS_LABELS["pending"])
+		self.reject_button.setEnabled(status == self._STATUS_LABELS["pending"])
+		self.cancel_button.setEnabled(
+			status
+			in {
+				self._STATUS_LABELS["pending"],
+				self._STATUS_LABELS["approved"],
+			}
+		)

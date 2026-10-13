@@ -74,3 +74,23 @@ def init_db() -> None:
 			"No se encontró la estructura requerida en PostgreSQL: "
 			+ ", ".join(missing_tables)
 		)
+
+	missing_columns = []
+	for table_name in sorted(required_tables):
+		expected_columns = {
+			column.name for column in Base.metadata.tables[table_name].columns
+		}
+		actual_columns = {
+			column["name"] for column in inspector.get_columns(table_name)
+		}
+		missing_columns.extend(
+			f"{table_name}.{column_name}"
+			for column_name in sorted(expected_columns - actual_columns)
+		)
+	if missing_columns:
+		raise RuntimeError(
+			"El esquema de PostgreSQL está desactualizado; faltan columnas: "
+			+ ", ".join(missing_columns)
+			+ ". Haz un respaldo y ejecuta `alembic upgrade head` desde la "
+			"carpeta del proyecto."
+		)

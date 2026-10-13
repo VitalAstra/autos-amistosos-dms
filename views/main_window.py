@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QInputDialog,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -52,7 +53,7 @@ class MainWindow(QMainWindow):
         self.btn_customers = QPushButton("Clientes")
         self.btn_vehicles = QPushButton("Vehículos")
         self.btn_sales = QPushButton("Nueva Venta")
-        self.btn_sales_history = QPushButton("Ventas registradas")
+        self.btn_sales_history = QPushButton("Historial de ventas")
         self.btn_sales_review = QPushButton("Aprobaciones")
         self.nav_buttons = (
             self.btn_dashboard,
@@ -119,11 +120,6 @@ class MainWindow(QMainWindow):
         self.sales_review_view.reject_requested.connect(self._reject_sale)
         self.sales_review_view.cancel_requested.connect(self._cancel_sale)
 
-        role = current_employee.role.casefold() if current_employee else ""
-        is_salesperson = role == "salesperson"
-        is_supervisor = role in {"manager", "administrator"}
-        self.btn_sales.setVisible(is_salesperson)
-        self.btn_sales_review.setVisible(is_supervisor)
         self._show_dashboard()
 
     def _show_customers(self):
@@ -205,8 +201,8 @@ class MainWindow(QMainWindow):
 
     def _show_sales(self):
         if (
-            self.current_employee is None
-            or self.current_employee.role.casefold() != "salesperson"
+            self.current_employee is not None
+            and self.current_employee.role.casefold() != "salesperson"
         ):
             return
         self.view_stack.setCurrentWidget(self.sales_view)
@@ -234,15 +230,9 @@ class MainWindow(QMainWindow):
         )
 
     def _process_sale(self, sale_data: dict):
-        if self.current_employee is None:
-            QMessageBox.warning(
-                self,
-                "Empleado requerido",
-                "Registra una sesión de empleado para crear una venta.",
-            )
-            return
         payload = dict(sale_data)
-        payload["employee_id"] = self.current_employee.employee_id
+        if self.current_employee is not None:
+            payload["employee_id"] = self.current_employee.employee_id
         success, message = self.sales_controller.process_sale(payload)
         self.sales_view.show_sale_result(success, message)
         if success:
@@ -251,8 +241,8 @@ class MainWindow(QMainWindow):
 
     def _show_sales_review(self):
         if (
-            self.current_employee is None
-            or self.current_employee.role.casefold()
+            self.current_employee is not None
+            and self.current_employee.role.casefold()
             not in {"manager", "administrator"}
         ):
             return
@@ -272,9 +262,14 @@ class MainWindow(QMainWindow):
         self._review_sale(self.sales_controller.cancel_sale, invoice_id, reason)
 
     def _review_sale(self, action, invoice_id: int, reason=None):
-        if self.current_employee is None:
+        supervisor_id = (
+            self.current_employee.employee_id
+            if self.current_employee is not None
+            else self._select_supervisor_id()
+        )
+        if supervisor_id is None:
             return
-        arguments = [invoice_id, self.current_employee.employee_id]
+        arguments = [invoice_id, supervisor_id]
         if reason is not None:
             arguments.append(reason)
         success, message = action(*arguments)
@@ -284,6 +279,34 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Revisión de venta", message)
         else:
             QMessageBox.warning(self, "No se pudo revisar", message)
+
+    def _select_supervisor_id(self) -> int | None:
+        supervisors = self.employee_controller.list_active_supervisors()
+        if not supervisors:
+            QMessageBox.warning(
+                self,
+                "Supervisor requerido",
+                "Registra un empleado con rol Gerente o Administración "
+                "antes de aprobar, rechazar o cancelar ventas.",
+            )
+            return None
+
+        labels = [
+            f"{employee.first_name} {employee.last_name} — {employee.role}"
+            for employee in supervisors
+        ]
+        label, accepted = QInputDialog.getItem(
+            self,
+            "Supervisor responsable",
+            "Selecciona el supervisor que realizará esta acción:",
+            labels,
+            0,
+            False,
+        )
+        if not accepted:
+            return None
+        selected_index = labels.index(label)
+        return supervisors[selected_index].employee_id
 
     def _show_dashboard(self):
         self.view_stack.setCurrentWidget(self.dashboard_view)
@@ -300,9 +323,9 @@ class MainWindow(QMainWindow):
 
     def _handle_dashboard_action(self, action: str):
         actions = {
-            "Registrar Cliente": self._show_customers,
-            "Alta de Vehículo": self._show_vehicles,
-            "Nueva Venta": self._show_sales,
+            "Registrar cliente": self._show_customers,
+            "Alta de vehículo": self._show_vehicles,
+            "Nueva venta": self._show_sales,
         }
         handler = actions.get(action)
         if handler is not None:

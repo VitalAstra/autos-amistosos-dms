@@ -24,7 +24,7 @@ class LoginDialog(QDialog):
 		brand_label = QLabel("Autos Amistosos")
 		brand_label.setObjectName("brandTitle")
 		layout.addWidget(brand_label)
-		layout.addWidget(QLabel("Inicia sesión con tu cuenta de empleado."))
+		layout.addWidget(QLabel("Ingresa con tu cuenta de empleado."))
 		form = QFormLayout()
 		self.username_input = QLineEdit()
 		self.password_input = QLineEdit()

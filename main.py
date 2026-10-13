@@ -5,7 +5,6 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from config.database import init_db
 from utils.style_loader import load_stylesheet
-from views.login_dialog import LoginDialog
 from views.main_window import MainWindow
 
 
@@ -21,10 +20,7 @@ def main():
         QMessageBox.critical(None, "Esquema de base de datos", str(error))
         return 1
 
-    login = LoginDialog()
-    if login.exec() != LoginDialog.DialogCode.Accepted:
-        return 0
-    window = MainWindow(login.employee)
+    window = MainWindow(None)
     window.show()
     return app.exec()
 
