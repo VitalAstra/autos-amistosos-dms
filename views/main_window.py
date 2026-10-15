@@ -16,6 +16,7 @@ from controllers.customer_controller import CustomerController
 from controllers.dashboard_controller import DashboardController
 from controllers.employee_controller import EmployeeController
 from controllers.sales_controller import SalesController
+from controllers.survey_controller import SurveyController
 from controllers.vehicle_controller import VehicleController
 from views.customer_view import CustomerView
 from views.dashboard_view import DashboardView
@@ -23,6 +24,7 @@ from views.new_employee_view import NewEmployeeView
 from views.sales_history_view import SalesHistoryView
 from views.sales_review_view import SalesReviewView
 from views.sales_view import SalesView
+from views.survey_view import SurveyView
 from views.vehicle_view import VehicleView
 
 
@@ -55,6 +57,7 @@ class MainWindow(QMainWindow):
         self.btn_sales = QPushButton("Nueva Venta")
         self.btn_sales_history = QPushButton("Historial de ventas")
         self.btn_sales_review = QPushButton("Aprobaciones")
+        self.btn_surveys = QPushButton("Encuestas")
         self.nav_buttons = (
             self.btn_dashboard,
             self.btn_customers,
@@ -62,6 +65,7 @@ class MainWindow(QMainWindow):
             self.btn_sales,
             self.btn_sales_history,
             self.btn_sales_review,
+            self.btn_surveys,
         )
         for button in self.nav_buttons:
             button.setObjectName("navButton")
@@ -86,6 +90,9 @@ class MainWindow(QMainWindow):
         self.sales_view = SalesView()
         self.sales_history_view = SalesHistoryView()
         self.sales_review_view = SalesReviewView()
+        self.survey_view = SurveyView(
+            SurveyController.get_prototype_messages()
+        )
         for view in (
             self.dashboard_view,
             self.customer_view,
@@ -93,6 +100,7 @@ class MainWindow(QMainWindow):
             self.sales_view,
             self.sales_history_view,
             self.sales_review_view,
+            self.survey_view,
         ):
             self.view_stack.addWidget(view)
 
@@ -105,6 +113,7 @@ class MainWindow(QMainWindow):
         self.btn_sales.clicked.connect(self._show_sales)
         self.btn_sales_history.clicked.connect(self._show_sales_history)
         self.btn_sales_review.clicked.connect(self._show_sales_review)
+        self.btn_surveys.clicked.connect(self._show_surveys)
         self.dashboard_view.quick_action_requested.connect(
             self._handle_dashboard_action
         )
@@ -115,6 +124,9 @@ class MainWindow(QMainWindow):
             self._open_new_employee
         )
         self.vehicle_view.vehicle_save_requested.connect(self._register_vehicle)
+        self.vehicle_view.vehicle_delete_requested.connect(
+            self._delete_vehicle
+        )
         self.sales_view.sale_requested.connect(self._process_sale)
         self.sales_review_view.approve_requested.connect(self._approve_sale)
         self.sales_review_view.reject_requested.connect(self._reject_sale)
@@ -183,6 +195,28 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.warning(self, "No se guardó el vehículo", message)
 
+    def _delete_vehicle(self, vehicle_id: str):
+        reply = QMessageBox.question(
+            self,
+            "Confirmar eliminación",
+            f"¿Eliminar el vehículo con VIN {vehicle_id}? "
+            "Esta acción no se puede deshacer.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        success, message = self.vehicle_controller.delete_vehicle(vehicle_id)
+        if success:
+            self.vehicle_view.clear_form()
+            self._show_vehicles()
+            self._refresh_sales_selection()
+            self._refresh_dashboard()
+            QMessageBox.information(self, "Vehículo eliminado", message)
+        else:
+            QMessageBox.warning(self, "No se pudo eliminar el vehículo", message)
+
     def _open_new_employee(self):
         if self._new_employee_window is None:
             self._new_employee_window = NewEmployeeView(self)
@@ -228,6 +262,10 @@ class MainWindow(QMainWindow):
         self.sales_history_view.load_sales(
             self.sales_controller.get_sales_history()
         )
+
+    def _show_surveys(self):
+        self.view_stack.setCurrentWidget(self.survey_view)
+        self._set_active_navigation(self.btn_surveys)
 
     def _process_sale(self, sale_data: dict):
         payload = dict(sale_data)
@@ -326,6 +364,7 @@ class MainWindow(QMainWindow):
             "Registrar cliente": self._show_customers,
             "Alta de vehículo": self._show_vehicles,
             "Nueva venta": self._show_sales,
+            "Encuestas": self._show_surveys,
         }
         handler = actions.get(action)
         if handler is not None:

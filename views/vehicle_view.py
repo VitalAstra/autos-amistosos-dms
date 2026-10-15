@@ -20,6 +20,7 @@ class VehicleView(QWidget):
 	"""Permite registrar vehículos y consultar el inventario."""
 
 	vehicle_save_requested = Signal(dict)
+	vehicle_delete_requested = Signal(str)
 
 	_COLUMNS = (
 		("id", "VIN"),
@@ -105,10 +106,20 @@ class VehicleView(QWidget):
 		self.vehicles_table.setSelectionBehavior(
 			QTableWidget.SelectionBehavior.SelectRows
 		)
+		self.vehicles_table.setSelectionMode(
+			QTableWidget.SelectionMode.SingleSelection
+		)
 		self.vehicles_table.setAlternatingRowColors(True)
 		self.vehicles_table.verticalHeader().setVisible(False)
 		self.vehicles_table.horizontalHeader().setStretchLastSection(True)
+		self.vehicles_table.currentCellChanged.connect(
+			self._update_delete_button
+		)
 		table_layout.addWidget(self.vehicles_table)
+		self.delete_button = QPushButton("Eliminar vehículo seleccionado")
+		self.delete_button.setEnabled(False)
+		self.delete_button.clicked.connect(self._emit_delete_requested)
+		table_layout.addWidget(self.delete_button)
 
 		main_layout.addWidget(form_card, 1)
 		main_layout.addWidget(table_card, 2)
@@ -128,6 +139,7 @@ class VehicleView(QWidget):
 
 	def load_data(self, vehicles):
 		"""Puebla la tabla con instancias ORM de vehículo."""
+		self.vehicles_table.clearSelection()
 		self.vehicles_table.setRowCount(len(vehicles))
 		self.vehicles_table.clearContents()
 		for row_index, vehicle in enumerate(vehicles):
@@ -137,3 +149,17 @@ class VehicleView(QWidget):
 				self.vehicles_table.setItem(
 					row_index, column_index, QTableWidgetItem(text)
 				)
+		self._update_delete_button()
+
+	def _selected_vehicle_id(self):
+		row = self.vehicles_table.currentRow()
+		item = self.vehicles_table.item(row, 0) if row >= 0 else None
+		return item.text() if item is not None else None
+
+	def _update_delete_button(self, *_):
+		self.delete_button.setEnabled(self._selected_vehicle_id() is not None)
+
+	def _emit_delete_requested(self):
+		vehicle_id = self._selected_vehicle_id()
+		if vehicle_id is not None:
+			self.vehicle_delete_requested.emit(vehicle_id)

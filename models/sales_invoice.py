@@ -14,7 +14,7 @@ from sqlalchemy import (
 	Integer,
 	Numeric,
 	String,
-	text,
+	column,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -38,15 +38,17 @@ class SalesInvoice(Base):
 	__tablename__ = "sales_invoice"
 	__table_args__ = (
 		CheckConstraint(
-			"sales_status IN ('pending', 'approved', 'rejected', 'cancelled', 'completed')",
+			column("sales_status").in_(
+				("pending", "approved", "rejected", "cancelled", "completed")
+			),
 			name="ck_sales_invoice_sales_status",
 		),
 		Index(
 			"uq_active_sales_invoice_vehicle",
 			"vehicle_id",
 			unique=True,
-			postgresql_where=text(
-				"sales_status IN ('pending', 'approved', 'completed')"
+			postgresql_where=column("sales_status").in_(
+				("pending", "approved", "completed")
 			),
 		),
 	)

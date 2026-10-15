@@ -129,3 +129,37 @@ class VehicleController:
 	def register_vehicle(self, data_dict: dict) -> tuple[bool, str]:
 		"""Mantiene compatibilidad con el nombre anterior del método."""
 		return self.add_vehicle(data_dict)
+
+	def delete_vehicle(self, vehicle_id: str) -> tuple[bool, str]:
+		"""Elimina un vehículo si no está referenciado por ninguna venta."""
+		if not isinstance(vehicle_id, str) or len(vehicle_id.strip()) != 17:
+			return False, "El VIN seleccionado no es válido."
+
+		normalized_id = vehicle_id.strip().upper()
+		try:
+			with SessionLocal() as session:
+				vehicle = session.scalars(
+					select(Vehicle)
+					.where(Vehicle.id == normalized_id)
+					.with_for_update()
+				).one_or_none()
+				if vehicle is None:
+					return False, "No se encontró el vehículo seleccionado."
+
+				has_sales = session.scalar(
+					select(SalesInvoice.id)
+					.where(SalesInvoice.vehicle_id == normalized_id)
+					.limit(1)
+				)
+				if has_sales is not None:
+					return (
+						False,
+						"No se puede eliminar este vehículo porque tiene "
+						"ventas asociadas.",
+					)
+
+				session.delete(vehicle)
+				session.commit()
+			return True, "Vehículo eliminado correctamente."
+		except Exception as error:
+			return False, f"No se pudo eliminar el vehículo: {error}"

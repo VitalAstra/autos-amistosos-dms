@@ -3,6 +3,7 @@
 from datetime import date
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import joinedload
 
 from config.database import SessionLocal
 from models.customer import Customer
@@ -40,22 +41,40 @@ class DashboardController:
 					SalesInvoice.status.in_(self._ACTIVE_SALE_STATUSES)
 				)
 			)
-			recent_sales = session.execute(
-				select(
-					SalesInvoice.id.label("invoice_number"),
-					func.concat_ws(" ", Customer.first_name, Customer.last_name).label(
-						"customer_name"
-					),
-					func.concat(Vehicle.manufacturer, " ", Vehicle.model).label("vehicle"),
-					SalesInvoice.total_amount.label("amount"),
-					SalesInvoice.date.label("date"),
+			recent_invoice_rows = session.scalars(
+				select(SalesInvoice)
+				.options(
+					joinedload(SalesInvoice.customer),
+					joinedload(SalesInvoice.vehicle),
 				)
-				.join(Customer, SalesInvoice.customer_id == Customer.id)
-				.join(Vehicle, SalesInvoice.vehicle_id == Vehicle.id)
 				.where(SalesInvoice.status.in_(self._ACTIVE_SALE_STATUSES))
 				.order_by(SalesInvoice.date.desc(), SalesInvoice.id.desc())
 				.limit(5)
-			).mappings().all()
+			).all()
+			recent_sales = [
+				{
+					"invoice_number": invoice.id,
+					"customer_name": " ".join(
+						part
+						for part in (
+							invoice.customer.first_name,
+							invoice.customer.last_name,
+						)
+						if part
+					),
+					"vehicle": " ".join(
+						part
+						for part in (
+							invoice.vehicle.manufacturer,
+							invoice.vehicle.model,
+						)
+						if part
+					),
+					"amount": invoice.total_amount,
+					"date": invoice.date,
+				}
+				for invoice in recent_invoice_rows
+			]
 
 		return {
 			"vehicles_available": int(available_count or 0),

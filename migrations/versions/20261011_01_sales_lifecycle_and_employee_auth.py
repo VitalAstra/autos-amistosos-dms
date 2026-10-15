@@ -127,7 +127,9 @@ def upgrade():
 		op.create_check_constraint(
 			"ck_sales_invoice_sales_status",
 			"sales_invoice",
-			"sales_status IN ('pending', 'approved', 'rejected', 'cancelled', 'completed')",
+			sa.column("sales_status").in_(
+				("pending", "approved", "rejected", "cancelled", "completed")
+			),
 		)
 
 	invoice_indexes = {
@@ -135,14 +137,17 @@ def upgrade():
 		for index in sa.inspect(op.get_bind()).get_indexes("sales_invoice")
 	}
 	if "uq_active_sales_invoice_vehicle" not in invoice_indexes:
-		duplicate_count = op.get_bind().execute(
-			sa.text(
-				"SELECT COUNT(*) FROM ("
-				"SELECT vehicle_id FROM sales_invoice "
-				"WHERE sales_status IN ('pending', 'approved', 'completed') "
-				"GROUP BY vehicle_id HAVING COUNT(*) > 1"
-				") AS duplicate_vehicles"
+		duplicate_vehicles = (
+			sa.select(SalesInvoice.vehicle_id)
+			.where(
+				SalesInvoice.status.in_(("pending", "approved", "completed"))
 			)
+			.group_by(SalesInvoice.vehicle_id)
+			.having(sa.func.count() > 1)
+			.subquery()
+		)
+		duplicate_count = op.get_bind().execute(
+			sa.select(sa.func.count()).select_from(duplicate_vehicles)
 		).scalar_one()
 		if duplicate_count:
 			raise RuntimeError(
@@ -155,8 +160,8 @@ def upgrade():
 			"sales_invoice",
 			["vehicle_id"],
 			unique=True,
-			postgresql_where=sa.text(
-				"sales_status IN ('pending', 'approved', 'completed')"
+			postgresql_where=sa.column("sales_status").in_(
+				("pending", "approved", "completed")
 			),
 		)
 

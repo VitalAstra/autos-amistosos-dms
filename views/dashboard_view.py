@@ -39,6 +39,7 @@ class DashboardView(QWidget):
 		"Registrar cliente",
 		"Alta de vehículo",
 		"Nueva venta",
+		"Encuestas",
 	)
 
 	def __init__(self, parent=None):
